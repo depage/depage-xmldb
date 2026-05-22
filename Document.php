@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @file    modules/xmlDb/Document.php
  *
@@ -8,6 +9,7 @@
  *
  * @author    Frank Hellenkamp [jonas@depage.net]
  */
+
 namespace Depage\XmlDb;
 
 class Document
@@ -114,7 +116,7 @@ class Document
                 docs.lastchange_uid AS lastchangeUid
             FROM {$this->table_docs} AS docs
             WHERE docs.id = :doc_id
-            LIMIT 1"
+            LIMIT 1",
         );
         $query->execute([
             'doc_id' => $this->doc_id,
@@ -148,7 +150,7 @@ class Document
                 $handler = new $className($this->xmlDb, $this);
             }
 
-            if ($handler instanceOf XmlDoctypes\DoctypeInterface) {
+            if ($handler instanceof XmlDoctypes\DoctypeInterface) {
                 $this->doctypeHandlers[$this->doc_id] = $handler;
             } else {
                 throw new Exceptions\XmlDbException('Doctype handler must implement DoctypeInterface');
@@ -173,7 +175,7 @@ class Document
         $query = $this->pdo->prepare(
             "SELECT docs.entities AS entities, docs.ns AS namespaces
             FROM {$this->table_docs} AS docs
-            WHERE docs.id = :doc_id"
+            WHERE docs.id = :doc_id",
         );
         $query->execute([
             'doc_id' => $this->doc_id,
@@ -265,7 +267,7 @@ class Document
         $query = $this->pdo->prepare(
             "SELECT xml.$attribute AS $attribute
             FROM {$this->table_xml} AS xml
-            WHERE xml.id = :id AND xml.id_doc = :doc_id"
+            WHERE xml.id = :id AND xml.id_doc = :doc_id",
         );
         $query->execute([
             'id' => $id,
@@ -368,7 +370,7 @@ class Document
                     docs.lastchange AS lastchange,
                     docs.lastchange_uid AS lastchangeUid
                 FROM {$this->table_docs} AS docs
-                WHERE docs.id = :doc_id"
+                WHERE docs.id = :doc_id",
             );
             $query->execute([
                 'doc_id' => $this->doc_id,
@@ -395,7 +397,8 @@ class Document
                         ON x.id_parent = t.id
                     )
                     SELECT lvl, xml.* FROM tree JOIN {$this->table_xml} AS xml ON tree.id = xml.id ORDER BY sortkey;",
-                [\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => false]);
+                \Depage\Db\Pdo::unbuffered(),
+            );
             $query->execute([
                 'doc_id' => $this->doc_id,
                 'id' => $id,
@@ -486,7 +489,7 @@ class Document
         $query = $this->pdo->prepare(
             "SELECT xml.value
             FROM {$this->table_xml} AS xml
-            WHERE xml.id = :node_id AND xml.type='ELEMENT_NODE' AND xml.id_doc = :doc_id"
+            WHERE xml.id = :node_id AND xml.type='ELEMENT_NODE' AND xml.id_doc = :doc_id",
         );
         $query->execute([
             'node_id' => $node_id,
@@ -496,7 +499,7 @@ class Document
         if ($result = $query->fetchObject()) {
             $matches = preg_split('/(="|"$|" )/', $result->value);
             $matches = array_chunk($matches, 2);
-            foreach($matches as $match) {
+            foreach ($matches as $match) {
                 if ($match[0] != '') {
                     $attributes[$match[0]] = htmlspecialchars_decode($match[1]);
                 }
@@ -559,10 +562,10 @@ class Document
             $query = $this->pdo->prepare(
                 "DELETE FROM {$this->table_xml}
                 WHERE
-                    id_doc = :id"
+                    id_doc = :id",
             );
             $query->execute([
-                'id' => $info->id
+                'id' => $info->id,
             ]);
             $this->pdo->exec("SET FOREIGN_KEY_CHECKS=1;");
         }
@@ -603,7 +606,7 @@ class Document
                 rootid = :rootid,
                 ns = :ns,
                 entities=''
-            WHERE id = :doc_id"
+            WHERE id = :doc_id",
         );
 
         $query->execute([
@@ -997,7 +1000,7 @@ class Document
             // delete the node
             $query = $this->pdo->prepare(
                 "DELETE FROM {$this->table_xml}
-                WHERE id_doc = :doc_id AND id = :node_id"
+                WHERE id_doc = :doc_id AND id = :node_id",
             );
             try {
                 $query->execute([
@@ -1018,7 +1021,8 @@ class Document
                             ON x.id_parent = t.id
                         )
                         SELECT * FROM tree ORDER BY sortkey DESC;",
-                    [\PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => false]);
+                    \Depage\Db\Pdo::unbuffered(),
+                );
                 $childquery->execute([
                     'doc_id' => $this->doc_id,
                     'id' => $node_id,
@@ -1037,7 +1041,7 @@ class Document
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table_xml}
                     SET pos=pos-1
-                    WHERE id_parent = :node_parent_id AND pos > :node_pos AND id_doc = :doc_id"
+                    WHERE id_parent = :node_parent_id AND pos > :node_pos AND id_doc = :doc_id",
             );
             $query->execute([
                 'node_parent_id' => $target_id,
@@ -1077,7 +1081,7 @@ class Document
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table_xml}
                 SET id_doc=NULL, id_parent=NULL, pos=NULL
-                WHERE id = :node_id AND id_doc = :doc_id"
+                WHERE id = :node_id AND id_doc = :doc_id",
             );
             $query->execute([
                 'node_id' => $node_id,
@@ -1087,7 +1091,7 @@ class Document
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table_xml}
                 SET pos=pos-1
-                WHERE id_parent = :node_parent_id AND pos > :node_pos AND id_doc = :doc_id"
+                WHERE id_parent = :node_parent_id AND pos > :node_pos AND id_doc = :doc_id",
             );
             $query->execute([
                 'node_parent_id' => $node_parent_id,
@@ -1099,7 +1103,7 @@ class Document
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table_xml}
                 SET pos=pos+1
-                WHERE id_parent = :target_id AND pos >= :target_pos AND id_doc = :doc_id"
+                WHERE id_parent = :target_id AND pos >= :target_pos AND id_doc = :doc_id",
             );
             $query->execute([
                 'target_id' => $target_id,
@@ -1110,7 +1114,7 @@ class Document
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table_xml}
                 SET id_doc = :doc_id, id_parent = :target_id, pos = :target_pos
-                WHERE id = :node_id"
+                WHERE id = :node_id",
             );
             $query->execute([
                 'target_id' => $target_id,
@@ -1239,7 +1243,7 @@ class Document
         $query = $this->pdo->prepare(
             "UPDATE {$this->table_xml} AS xml
             SET xml.value = :attr_str
-            WHERE xml.id = :node_id AND xml.id_doc = :doc_id"
+            WHERE xml.id = :node_id AND xml.id_doc = :doc_id",
         );
         $success = $query->execute([
             'node_id' => $node_id,
@@ -1312,7 +1316,7 @@ class Document
             $this->db_ns->ns . ':lastchangeUid',
         ];
         ksort($attributes);
-        foreach($attributes as $name => $value) {
+        foreach ($attributes as $name => $value) {
             if (!in_array($name, $autogeneratedAttr)) {
                 $attr_str .= "$name=\"" . htmlspecialchars($value) . "\" ";
             }
@@ -1370,7 +1374,7 @@ class Document
                 $parentNode->appendChild($node);
 
                 if ($row->lvl == 0) {
-                    foreach($this->namespaces as $n) {
+                    foreach ($this->namespaces as $n) {
                         $node->setAttributeNS('http://www.w3.org/2000/xmlns/', "xmlns:{$n->ns}", $n->uri);
                     }
 
@@ -1381,7 +1385,7 @@ class Document
 
                 //add attributes to node
                 $matches = array_chunk(preg_split('/(="|"$|" )/', $row->value), 2);
-                foreach($matches as $m) {
+                foreach ($matches as $m) {
                     $attrName = trim($m[0]);
                     $attrValue = htmlspecialchars_decode($m[1] ?? '');
 
@@ -1397,23 +1401,23 @@ class Document
                 //add id_attribute to node
                 $node->setAttributeNS($this->db_ns->uri, "{$this->db_ns->ns}:{$this->id_attribute}", $row->id);
 
-            //get TEXT_NODES
-            } else if ($row->type == 'TEXT_NODE') {
+                //get TEXT_NODES
+            } elseif ($row->type == 'TEXT_NODE') {
                 $node = $doc->createTextNode(strtr($row->value, "\r", " "));
                 $parentNode->appendChild($node);
-            //get CDATA_SECTION
-            } else if ($row->type == 'CDATA_SECTION_NODE') {
+                //get CDATA_SECTION
+            } elseif ($row->type == 'CDATA_SECTION_NODE') {
                 // @todo CDATA not implemented yet
-            //get COMMENT_NODE
-            } else if ($row->type == 'COMMENT_NODE') {
+                //get COMMENT_NODE
+            } elseif ($row->type == 'COMMENT_NODE') {
                 $node = $doc->createComment($row->value);
                 $parentNode->appendChild($node);
-            //get PROCESSING_INSTRUCTION
-            } else if ($row->type == 'PI_NODE') {
+                //get PROCESSING_INSTRUCTION
+            } elseif ($row->type == 'PI_NODE') {
                 $node = $doc->createProcessingInstruction($row->name, $row->value);
                 $parentNode->appendChild($node);
-            //get ENTITY_REF Node
-            } else if ($row->type == 'ENTITY_REF_NODE') {
+                //get ENTITY_REF Node
+            } elseif ($row->type == 'ENTITY_REF_NODE') {
                 // @todo ENTITY_REF_NODE not implemented yet
             }
 
@@ -1440,7 +1444,7 @@ class Document
         $query = $this->pdo->prepare(
             "SELECT IFNULL(MAX(xml.pos), -1) + 1 AS pos
             FROM {$this->table_xml} AS xml
-            WHERE xml.id_parent = :target_id AND id_doc = :doc_id"
+            WHERE xml.id_parent = :target_id AND id_doc = :doc_id",
         );
         $query->execute([
             'target_id' => $target_id,
@@ -1483,7 +1487,7 @@ class Document
         $pAttr = '([^"]*)';
         preg_match_all("/xmlns:$pName=\"$pAttr\"/", $str, $ns_elements, PREG_SET_ORDER);
 
-        foreach ($ns_elements AS $ns_element) {
+        foreach ($ns_elements as $ns_element) {
             $namespaces[$ns_element[1]] = new XmlNs($ns_element[1], $ns_element[2]);
         }
 
@@ -1532,7 +1536,7 @@ class Document
             $query = $this->pdo->prepare(
                 "DELETE
                 FROM {$this->table_xml}
-                WHERE id_doc = :doc_id"
+                WHERE id_doc = :doc_id",
             );
             $query->execute([
                 'doc_id' => $this->doc_id,
@@ -1715,7 +1719,7 @@ class Document
                     name = :name,
                     value = :value,
                     type = :type
-                ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)"
+                ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)",
             );
         }
 
@@ -1746,7 +1750,7 @@ class Document
                 $query = $this->pdo->prepare(
                     "UPDATE {$this->table_xml}
                     SET pos = pos + 1
-                    WHERE id_parent = :target_id AND pos >= :target_pos AND id_doc = :doc_id"
+                    WHERE id_parent = :target_id AND pos >= :target_pos AND id_doc = :doc_id",
                 );
                 $query->execute([
                     'target_id' => $target_id,
@@ -1758,17 +1762,17 @@ class Document
             $node_type = 'ELEMENT_NODE';
             $node_data = $attr_str;
             $node_name = $name_query;
-        } else if ($node->nodeType == XML_TEXT_NODE) {
+        } elseif ($node->nodeType == XML_TEXT_NODE) {
             $node_type = 'TEXT_NODE';
             $node_data = $node->textContent;
-        } else if ($node->nodeType == XML_COMMENT_NODE) {
+        } elseif ($node->nodeType == XML_COMMENT_NODE) {
             $node_type = 'COMMENT_NODE';
             $node_data = $node->textContent;
-        } else if ($node->nodeType == XML_PI_NODE) {
+        } elseif ($node->nodeType == XML_PI_NODE) {
             $node_type = 'PI_NODE';
             $node_data = $node->textContent;
             $node_name = $node->target;
-        } else if ($node->nodeType == XML_ENTITY_REF_NODE) {
+        } elseif ($node->nodeType == XML_ENTITY_REF_NODE) {
             $node_type = 'ENTITY_REF_NODE';
             $node_data = $node->nodeName;
         } else {
@@ -1831,25 +1835,26 @@ class Document
      * @param $uid (int) optional user id, defaults to current user, when user
      *        is set in xmlDb options
      */
-    public function updateLastChange($timestamp = null, $uid = null) {
+    public function updateLastChange($timestamp = null, $uid = null)
+    {
         $query = $this->pdo->prepare(
             "UPDATE {$this->table_docs}
             SET
                 lastchange=:timestamp,
                 lastchange_uid=IFNULL(:user_id, lastchange_uid)
             WHERE
-                id=:doc_id;"
+                id=:doc_id;",
         );
 
         if (empty($timestamp)) {
             $timestamp = time();
-        } else if (is_string($timestamp)) {
+        } elseif (is_string($timestamp)) {
             $timestamp = strtotime($timestamp);
         }
 
         if (!empty($uid)) {
             $user_id = $uid;
-        } else if (!empty($this->xmlDb->options['userId'])) {
+        } elseif (!empty($this->xmlDb->options['userId'])) {
             $user_id = $this->xmlDb->options['userId'];
         } else {
             $user_id = null;
