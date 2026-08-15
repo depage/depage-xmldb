@@ -106,7 +106,7 @@ class XpathParser
     }
     // }}}
     // {{{ removeLiteralStrings
-    public function removeLiteralStrings($text, &$strings)
+    protected function removeLiteralStrings($text, &$strings)
     {
         $n = 0;
         $newText = '';
