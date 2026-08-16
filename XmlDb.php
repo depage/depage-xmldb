@@ -313,17 +313,14 @@ class XmlDb implements XmlGetter
         $levels = count($xpathElements) - 1;
 
         foreach ($xpathElements as $level => $element) {
-            $element[] = '';
-            [, $divider, $ns, $name, $condition] = $element;
-
             if ($level == 0) {
                 $tableSql[] = "SELECT l$levels.id FROM";
-                if ($divider == '/') {
+                if ($element->divider == '/') {
                     $condSql[] = "l0.id_parent IS NULL";
                 }
             } else {
                 $tableSql[] = 'INNER JOIN';
-                if ($divider == '/' && !$fallback) {
+                if ($element->divider == '/' && !$fallback) {
                     $parentLevel = $level - 1;
                     $condSql[] = "l$level.id_parent = l$parentLevel.id";
                 } else {
@@ -332,16 +329,16 @@ class XmlDb implements XmlGetter
             }
 
             $tableSql[] = "{$this->table_xml} AS l$level";
-            $op = $parser->getConditionOperator($ns, $name);
+            $op = $parser->getConditionOperator($element->namespace, $element->name);
             $condSql[] = "l$level.name $op :name$level";
-            $params["name$level"] = $parser->translateName($ns, $name);
+            $params["name$level"] = $parser->translateName($element->namespace, $element->name);
 
-            $hasPosition = $parser->parsePosition($condition);
+            $hasPosition = $parser->parsePosition($element->condition);
 
             if ($hasPosition) {
                 $fallback = true;
-            } elseif ($condition != '') {
-                if ($attributes = $parser->parseAttributes($condition)) {
+            } elseif ($element->condition != '') {
+                if ($attributes = $parser->parseAttributes($element->condition)) {
                     // fetch by simple attributes: "ns:name[@attr1] ..."
                     $attributeCond = '';
                     foreach ($attributes as $i => $attribute) {
@@ -352,6 +349,7 @@ class XmlDb implements XmlGetter
                         }
 
                         if ($name == 'db:id') {
+                            $attributeOperator = $parser->cleanOperator($operator);
                             $attributeCond .= " l$level.id {$parser->cleanOperator($operator)} :attr{$level}n{$i} ";
                             $params["attr{$level}n{$i}"] = $value;
                         } elseif ($operator == '=' || $operator == '') {

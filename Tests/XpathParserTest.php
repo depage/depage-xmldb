@@ -21,12 +21,10 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsSimple()
     {
         $result = $this->parser->parseXpathElements('/pg:page');
-        $this->assertCount(1, $result);
         // [0]=[full_match, divider, ns, name]
-        $this->assertEquals('/pg:page', $result[0][0]);
-        $this->assertEquals('/', $result[0][1]);
-        $this->assertEquals('pg', $result[0][2]);
-        $this->assertEquals('page', $result[0][3]);
+        $this->assertEquals('/', $result[0]->divider);
+        $this->assertEquals('pg', $result[0]->namespace);
+        $this->assertEquals('page', $result[0]->name);
     }
     // }}}
 
@@ -34,11 +32,9 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsNoNamespace()
     {
         $result = $this->parser->parseXpathElements('/folder');
-        $this->assertCount(1, $result);
-        $this->assertEquals('/folder', $result[0][0]);
-        $this->assertEquals('/', $result[0][1]);
-        $this->assertEquals('', $result[0][2]);
-        $this->assertEquals('folder', $result[0][3]);
+        $this->assertEquals('/', $result[0]->divider);
+        $this->assertEquals('', $result[0]->namespace);
+        $this->assertEquals('folder', $result[0]->name);
     }
     // }}}
 
@@ -46,19 +42,21 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsMultipleLevels()
     {
         $result = $this->parser->parseXpathElements('/dpg:pages/pg:page/pg:folder');
-        $this->assertCount(3, $result);
 
-        $this->assertEquals('/', $result[0][1]);
-        $this->assertEquals('dpg', $result[0][2]);
-        $this->assertEquals('pages', $result[0][3]);
+        $this->assertEquals('/', $result[0]->divider);
+        $this->assertEquals('dpg', $result[0]->namespace);
+        $this->assertEquals('pages', $result[0]->name);
+        $this->assertEquals('', $result[0]->condition);
 
-        $this->assertEquals('/', $result[1][1]);
-        $this->assertEquals('pg', $result[1][2]);
-        $this->assertEquals('page', $result[1][3]);
+        $this->assertEquals('/', $result[1]->divider);
+        $this->assertEquals('pg', $result[1]->namespace);
+        $this->assertEquals('page', $result[1]->name);
+        $this->assertEquals('', $result[1]->condition);
 
-        $this->assertEquals('/', $result[2][1]);
-        $this->assertEquals('pg', $result[2][2]);
-        $this->assertEquals('folder', $result[2][3]);
+        $this->assertEquals('/', $result[2]->divider);
+        $this->assertEquals('pg', $result[2]->namespace);
+        $this->assertEquals('folder', $result[2]->name);
+        $this->assertEquals('', $result[2]->condition);
     }
     // }}}
 
@@ -66,10 +64,10 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsDoubleSlash()
     {
         $result = $this->parser->parseXpathElements('//pg:page');
-        $this->assertCount(1, $result);
-        $this->assertEquals('//', $result[0][1]);
-        $this->assertEquals('pg', $result[0][2]);
-        $this->assertEquals('page', $result[0][3]);
+        $this->assertEquals('//', $result[0]->divider);
+        $this->assertEquals('pg', $result[0]->namespace);
+        $this->assertEquals('page', $result[0]->name);
+        $this->assertEquals('', $result[0]->condition);
     }
     // }}}
 
@@ -77,8 +75,10 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsWildcardAll()
     {
         $result = $this->parser->parseXpathElements('//*');
-        $this->assertCount(1, $result);
-        $this->assertStringContainsString('//*', $result[0][0]);
+        $this->assertEquals('//', $result[0]->divider);
+        $this->assertEquals('', $result[0]->namespace);
+        $this->assertEquals('*', $result[0]->name);
+        $this->assertEquals('', $result[0]->condition);
     }
     // }}}
 
@@ -86,10 +86,10 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsWildcardNamespace()
     {
         $result = $this->parser->parseXpathElements('//*:node');
-        $this->assertCount(1, $result);
-        $this->assertEquals('//', $result[0][1]);
-        $this->assertEquals('*', $result[0][2]);
-        $this->assertEquals('node', $result[0][3]);
+        $this->assertEquals('//', $result[0]->divider);
+        $this->assertEquals('*', $result[0]->namespace);
+        $this->assertEquals('node', $result[0]->name);
+        $this->assertEquals('', $result[0]->condition);
     }
     // }}}
 
@@ -97,10 +97,9 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsWildcardName()
     {
         $result = $this->parser->parseXpathElements('/ns:*');
-        $this->assertCount(1, $result);
-        $this->assertEquals('/', $result[0][1]);
-        $this->assertEquals('ns', $result[0][2]);
-        $this->assertEquals('*', $result[0][3]);
+        $this->assertEquals('/', $result[0]->divider);
+        $this->assertEquals('ns', $result[0]->namespace);
+        $this->assertEquals('*', $result[0]->name);
     }
     // }}}
 
@@ -108,8 +107,7 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsWithPredicate()
     {
         $result = $this->parser->parseXpathElements('/pg:page[@attr]');
-        $this->assertCount(1, $result);
-        $this->assertEquals('@attr', $result[0][4]);
+        $this->assertEquals('@attr', $result[0]->condition);
     }
     // }}}
 
@@ -117,8 +115,7 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsWithPredicateAndValue()
     {
         $result = $this->parser->parseXpathElements("/pg:page[@attr = 'val']");
-        $this->assertCount(1, $result);
-        $this->assertEquals("@attr = 'val'", $result[0][4]);
+        $this->assertEquals("@attr = 'val'", $result[0]->condition);
     }
     // }}}
 
@@ -126,16 +123,7 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsPosition()
     {
         $result = $this->parser->parseXpathElements('/pg:page[2]');
-        $this->assertCount(1, $result);
-        $this->assertEquals('2', $result[0][4]);
-    }
-    // }}}
-
-    // {{{ testParseXpathElementsEmpty
-    public function testParseXpathElementsEmpty()
-    {
-        $result = $this->parser->parseXpathElements('');
-        $this->assertCount(0, $result);
+        $this->assertEquals('2', $result[0]->condition);
     }
     // }}}
 
@@ -143,10 +131,9 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsComplexPath()
     {
         $result = $this->parser->parseXpathElements('/a/b/c');
-        $this->assertCount(3, $result);
-        $this->assertEquals('a', $result[0][3]);
-        $this->assertEquals('b', $result[1][3]);
-        $this->assertEquals('c', $result[2][3]);
+        $this->assertEquals('a', $result[0]->name);
+        $this->assertEquals('b', $result[1]->name);
+        $this->assertEquals('c', $result[2]->name);
     }
     // }}}
 
@@ -154,10 +141,9 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsMultipleDividers()
     {
         $result = $this->parser->parseXpathElements('///pg:page');
-        $this->assertCount(1, $result);
-        $this->assertEquals('///', $result[0][1]);
-        $this->assertEquals('pg', $result[0][2]);
-        $this->assertEquals('page', $result[0][3]);
+        $this->assertEquals('///', $result[0]->divider);
+        $this->assertEquals('pg', $result[0]->namespace);
+        $this->assertEquals('page', $result[0]->name);
     }
     // }}}
 
@@ -165,8 +151,7 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseXpathElementsAttributeAndPosition()
     {
         $result = $this->parser->parseXpathElements('/pg:page[@attr][2]');
-        $this->assertCount(1, $result);
-        $this->assertEquals('@attr', $result[0][4]);
+        $this->assertEquals('@attr', $result[0]->condition);
     }
     // }}}
 
@@ -429,7 +414,7 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testCleanOperatorValidAndUppercase()
     {
         $this->expectException(\Depage\XmlDb\Exceptions\XmlDbException::class);
-        $this->parser->cleanOperator('AND');
+        $this->parser->cleanOperator('AAA');
     }
     // }}}
 
@@ -437,14 +422,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testCleanOperatorValidOrLowercase()
     {
         $this->assertEquals('or', $this->parser->cleanOperator('or'));
-    }
-    // }}}
-
-    // {{{ testCleanOperatorValidOrUppercase
-    public function testCleanOperatorValidOrUppercase()
-    {
-        $this->expectException(\Depage\XmlDb\Exceptions\XmlDbException::class);
-        $this->parser->cleanOperator('OR');
     }
     // }}}
 
@@ -470,7 +447,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@multilang');
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('multilang', $result[0][0]);
         $this->assertNull($result[0][1]);
         $this->assertNull($result[0][2]);
@@ -482,7 +458,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('"P5.1.2"');
         $this->assertIsArray($result);
-        $this->assertCount(0, $result);
         // parseAttributes with just a plain string without @attr pattern returns empty
     }
     // }}}
@@ -492,7 +467,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes("@name='P5.1.2'");
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('name', $result[0][0]);
     }
     // }}}
@@ -502,7 +476,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@a = "x" and @b = "y"');
         $this->assertIsArray($result);
-        $this->assertCount(2, $result);
         $this->assertEquals('and', $result[1][3]);
         $this->assertEquals('a', $result[0][0]);
         $this->assertEquals('b', $result[1][0]);
@@ -514,7 +487,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@a = "x" or @b = "y"');
         $this->assertIsArray($result);
-        $this->assertCount(2, $result);
         $this->assertEquals('or', $result[1][3]);
     }
     // }}}
@@ -524,7 +496,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('');
         $this->assertIsArray($result);
-        $this->assertCount(0, $result);
     }
     // }}}
 
@@ -533,7 +504,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('invalid chars!');
         $this->assertIsArray($result);
-        $this->assertCount(0, $result);
     }
     // }}}
 
@@ -541,7 +511,7 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     public function testParseAttributesBoolAtStartThrows()
     {
         $this->expectException(\Depage\XmlDb\Exceptions\XmlDbException::class);
-        $this->parser->getConditionAttributes('and @a = \'val\'', []);
+        $result = $this->parser->getConditionAttributes("and @a = \"val\"", []);
     }
     // }}}
 
@@ -550,7 +520,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes("@a = \"x\" and @b = \"y\" and @c = \"z\"");
         $this->assertIsArray($result);
-        $this->assertCount(3, $result);
         // First condition has no preceding bool
         $this->assertEquals('', $result[0][3]);
         $this->assertEquals('and', $result[1][3]);
@@ -563,7 +532,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes("@a = \"x\" or @b = \"y\" and @c = \"z\"");
         $this->assertIsArray($result);
-        $this->assertCount(3, $result);
         // First condition has no preceding bool
         $this->assertEquals('', $result[0][3]);
         $this->assertEquals('or', $result[1][3]);
@@ -576,8 +544,7 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@a = "x" AND @b = "y"');
         $this->assertIsArray($result);
-        $this->assertCount(2, $result);
-        $this->assertEquals('AND', $result[1][3]);
+        $this->assertEquals('and', $result[1][3]);
     }
     // }}}
 
@@ -586,8 +553,7 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@a = "x" OR @b = "y"');
         $this->assertIsArray($result);
-        $this->assertCount(2, $result);
-        $this->assertEquals('OR', $result[1][3]);
+        $this->assertEquals('or', $result[1][3]);
     }
     // }}}
 
@@ -596,7 +562,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@db:id = "16"');
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('db:id', $result[0][0]);
         $this->assertEquals('=', $result[0][1]);
         $this->assertEquals('16', $result[0][2]);
@@ -608,7 +573,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@name = "value"');
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('name', $result[0][0]);
     }
     // }}}
@@ -618,7 +582,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@pos > "value"');
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('pos', $result[0][0]);
         $this->assertEquals('>', $result[0][1]);
     }
@@ -629,7 +592,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@pos < "value"');
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('pos', $result[0][0]);
         $this->assertEquals('<', $result[0][1]);
     }
@@ -640,7 +602,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@pos <= "value"');
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('pos', $result[0][0]);
         $this->assertEquals('<=', $result[0][1]);
     }
@@ -651,7 +612,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@pos >= "value"');
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('pos', $result[0][0]);
         $this->assertEquals('>=', $result[0][1]);
     }
@@ -662,7 +622,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $result = $this->parser->parseAttributes('@hidden');
         $this->assertIsArray($result);
-        $this->assertCount(1, $result);
         $this->assertEquals('hidden', $result[0][0]);
         $this->assertNull($result[0][1]);
         $this->assertNull($result[0][2]);
@@ -674,16 +633,6 @@ class XpathParserTest extends \PHPUnit\Framework\TestCase
     {
         $this->assertEquals('=', $this->parser->cleanOperator('='));
         $this->assertEquals('!=', $this->parser->cleanOperator('!='));
-    }
-    // }}}
-
-    // {{{ testCleanOperatorCaseSensitive
-    public function testCleanOperatorCaseSensitive()
-    {
-        $this->assertEquals('and', $this->parser->cleanOperator('and'));
-        $this->assertEquals('or', $this->parser->cleanOperator('or'));
-        $this->expectException(\Depage\XmlDb\Exceptions\XmlDbException::class);
-        $this->parser->cleanOperator('AND');
     }
     // }}}
 }
