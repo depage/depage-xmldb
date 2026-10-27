@@ -39,13 +39,18 @@ class XmlDbTestCase extends \PHPUnit\Framework\TestCase
     // {{{ getConnection
     final public function getConnection()
     {
+        // no \PDO::ATTR_PERSISTENT here on purpose: pooled persistent handles
+        // share one server session, and up to PHP 8.3 destroying an abandoned
+        // handle from a previous test rolls back the open transaction of that
+        // shared session — wiping the enclosing test transaction of whichever
+        // test is running when the garbage collector gets around to it (rows
+        // vanish or leak, FK errors in the batch inserts)
         $this->pdo = new \Depage\Db\Pdo(
             $GLOBALS['DB_DSN'],
             $GLOBALS['DB_USER'],
             $GLOBALS['DB_PASSWD'],
             [
                 'prefix' => 'xmldb',
-                \PDO::ATTR_PERSISTENT => true,
             ]
         );
         return $this->pdo;
