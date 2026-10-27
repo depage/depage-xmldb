@@ -6,6 +6,7 @@ class MockCache
 {
     public $cached = [];
     public $deleted = false;
+    public $deletedKeys = [];
 
     public function set($identifier, $xml)
     {
@@ -27,6 +28,7 @@ class MockCache
     {
         // stub, no actual deleting going on here
         $this->deleted = true;
+        $this->deletedKeys[] = $identifier;
     }
 }
 

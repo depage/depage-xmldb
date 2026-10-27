@@ -515,7 +515,7 @@ class XmlDb implements XmlGetter
                 'doc_id' => $doc_id,
             ]);
 
-            $this->cache->delete("{$this->table_docs}/d{$this->doc_id}/");
+            $this->cache->delete("{$this->table_docs}_d{$doc_id}/");
 
             $this->doc_ids = array_filter(
                 $this->doc_ids,
@@ -591,6 +591,8 @@ class XmlDb implements XmlGetter
     {
         if ($this->transactions == 0) {
             $this->beginPdoTransaction();
+        } else {
+            $this->createSavepoint($this->transactions);
         }
         $this->transactions++;
 
@@ -608,9 +610,55 @@ class XmlDb implements XmlGetter
 
             $altered = $this->alteringTransaction;
             $this->alteringTransaction = false;
+        } else {
+            $this->releaseSavepoint($this->transactions);
         }
 
         return $altered;
+    }
+    // }}}
+    // {{{ rollBackTransaction
+    /**
+     * rolls back to the start of the innermost open transaction level,
+     * keeping outer transaction levels (if any) intact. call from the
+     * catch block of code that opened the transaction.
+     *
+     * @return bool true if a transaction level was rolled back, false if
+     *         no transaction was open
+     */
+    public function rollBackTransaction()
+    {
+        if ($this->transactions == 0) {
+            return false;
+        }
+
+        $this->transactions--;
+
+        if ($this->transactions == 0) {
+            $this->rollBackPdoTransaction();
+            $this->alteringTransaction = false;
+        } else {
+            $this->rollbackToSavepoint($this->transactions);
+            $this->releaseSavepoint($this->transactions);
+        }
+
+        return true;
+    }
+    // }}}
+    // {{{ rollBack
+    /**
+     * resets the transaction state completely and rolls back the database
+     * transaction; use to recover after a failure that left transactions
+     * open.
+     *
+     * @return bool true if a database transaction was rolled back
+     */
+    public function rollBack()
+    {
+        $this->transactions = 0;
+        $this->alteringTransaction = false;
+
+        return $this->rollBackPdoTransaction();
     }
     // }}}
 
@@ -624,6 +672,43 @@ class XmlDb implements XmlGetter
     protected function commitPdoTransaction()
     {
         $this->pdo->commit();
+    }
+    // }}}
+    // {{{ rollBackPdoTransaction
+    protected function rollBackPdoTransaction()
+    {
+        $rolledBack = false;
+
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->rollBack();
+            $rolledBack = true;
+        }
+
+        return $rolledBack;
+    }
+    // }}}
+    // {{{ createSavepoint
+    protected function createSavepoint($level)
+    {
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->exec('SAVEPOINT xmldb_sp_' . (int) $level);
+        }
+    }
+    // }}}
+    // {{{ releaseSavepoint
+    protected function releaseSavepoint($level)
+    {
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->exec('RELEASE SAVEPOINT xmldb_sp_' . (int) $level);
+        }
+    }
+    // }}}
+    // {{{ rollbackToSavepoint
+    protected function rollbackToSavepoint($level)
+    {
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->exec('ROLLBACK TO SAVEPOINT xmldb_sp_' . (int) $level);
+        }
     }
     // }}}
 }

@@ -26,7 +26,11 @@ class XmlDbTestCase extends \PHPUnit\Framework\TestCase
     // {{{ tearDown
     protected function tearDown(): void
     {
-        $this->pdo->rollBack();
+        // tests that exercise rollback code paths may already have
+        // rolled the wrapping transaction back
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->rollBack();
+        }
 
         parent::tearDown();
     }
