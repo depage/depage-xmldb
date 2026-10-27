@@ -14,13 +14,23 @@ namespace Depage\XmlDb;
 
 class Document
 {
-    // {{{ variables
+    // {{{ constants
     /**
      * number of decimal digits used for the position part of the recursive
      * CTE sortkey; limits the tree depth the recursive queries can order
      * to strlen-limit / SORTKEY_PAD levels
      */
-    public const SORTKEY_PAD = 5;
+    public const SORTKEY_PAD = 20;
+
+    /**
+     * distance between the sparse positions of sibling nodes; inserting a
+     * node between two neighbours takes the midpoint of their positions,
+     * the child list is rebalanced once the space between two neighbours
+     * drops below POS_MIN_GAP
+     */
+    public const POS_GAP = 65536;
+    public const POS_MIN_GAP = 16;
+    // }}}
 
     // {{{ variables
     protected $pdo;
@@ -332,6 +342,162 @@ class Document
     public function getPosById($id)
     {
         return $this->getNodeAttributeById($id, 'pos');
+    }
+    // }}}
+    // {{{ getIndexById
+    /**
+     * gets the index of a node in the child list of its parent node
+     * (number of siblings before it). in contrast to getPosById this is
+     * the "dense" position, independent of the sparse pos values.
+     *
+     * @param $id (int) node db-id
+     *
+     * @return $index (int) index in parents childlist, false if node doesn't exist.
+     */
+    public function getIndexById($id)
+    {
+        $parent_id = $this->getParentIdById($id);
+
+        if ($parent_id === false) {
+            return false;
+        }
+
+        $pos = $this->getPosById($id);
+
+        $query = $this->pdo->prepare(
+            "SELECT COUNT(*) AS sibling_index
+            FROM {$this->table_xml} AS xml
+            WHERE xml.id_parent = :parent_id AND xml.id_doc = :doc_id AND xml.pos < :pos",
+        );
+        $query->execute([
+            'parent_id' => $parent_id,
+            'pos' => $pos,
+            'doc_id' => $this->doc_id,
+        ]);
+        $result = $query->fetchObject();
+
+        return (int) $result->sibling_index;
+    }
+    // }}}
+    // {{{ getSiblingPositions
+    /**
+     * gets id and pos of all children of a parent node in document order
+     *
+     * @param $parent_id (int) db-id of parent node
+     *
+     * @return (array) list of objects with id and pos
+     */
+    protected function getSiblingPositions($parent_id)
+    {
+        $query = $this->pdo->prepare(
+            "SELECT xml.id, xml.pos
+            FROM {$this->table_xml} AS xml
+            WHERE xml.id_parent = :parent_id AND xml.id_doc = :doc_id
+            ORDER BY xml.pos ASC, xml.id ASC",
+        );
+        $query->execute([
+            'parent_id' => $parent_id,
+            'doc_id' => $this->doc_id,
+        ]);
+
+        return $query->fetchAll(\PDO::FETCH_OBJ);
+    }
+    // }}}
+    // {{{ positionForIndex
+    /**
+     * calculates the sparse pos value for a node to be inserted at the
+     * given index of a parent node's child list; the result lies between
+     * the positions of the neighbouring siblings, so no other rows have
+     * to be renumbered. if the space between the neighbours is exhausted,
+     * the child list is rebalanced and the position recalculated.
+     *
+     * @param $parent_id (int) db-id of parent node
+     * @param $index (int) insertion index in the child list
+     * @param $exclude_id (int) db-id of a child that does not count into
+     *        the index (a node that is moved inside its own parent)
+     *
+     * @return (int) pos value for the node to insert
+     */
+    protected function positionForIndex($parent_id, $index, $exclude_id = null)
+    {
+        $siblings = $this->getSiblingPositions($parent_id);
+
+        if (!is_null($exclude_id)) {
+            foreach ($siblings as $i => $sibling) {
+                if ($sibling->id == $exclude_id) {
+                    unset($siblings[$i]);
+                    $siblings = array_values($siblings);
+                    break;
+                }
+            }
+        }
+
+        $num_siblings = count($siblings);
+        $index = min(max((int) $index, 0), $num_siblings);
+
+        if ($index >= $num_siblings) {
+            // appending does not need room between two neighbours
+            $last_pos = $num_siblings > 0 ? (int) $siblings[$num_siblings - 1]->pos : 0;
+
+            return $last_pos + self::POS_GAP;
+        }
+
+        $prev_pos = $index > 0 ? (int) $siblings[$index - 1]->pos : 0;
+        $next_pos = (int) $siblings[$index]->pos;
+
+        if ($next_pos - $prev_pos - 1 < self::POS_MIN_GAP) {
+            $this->rebalancePositions($parent_id);
+
+            return $this->positionForIndex($parent_id, $index, $exclude_id);
+        }
+
+        return intdiv($prev_pos + $next_pos, 2);
+    }
+    // }}}
+    // {{{ rebalancePositions
+    /**
+     * renumbers the children of a parent node to have an even distance of
+     * self::POS_GAP between their positions; called when the sparse
+     * positions of a child list are exhausted
+     *
+     * @param $parent_id (int) db-id of parent node
+     */
+    protected function rebalancePositions($parent_id)
+    {
+        $siblings = $this->getSiblingPositions($parent_id);
+
+        if (count($siblings) == 0) {
+            return;
+        }
+
+        $id_list = [];
+        $case = '';
+        foreach ($siblings as $index => $sibling) {
+            $id = (int) $sibling->id;
+            $id_list[] = $id;
+            $case .= ' WHEN ' . $id . ' THEN ' . (($index + 1) * self::POS_GAP);
+        }
+
+        // the unique sibling index is checked row by row, so the positions
+        // have to be moved out of the way first: adding a big offset in
+        // descending order cannot collide with a sibling that has not
+        // been updated yet, and the offset is big enough to keep the
+        // scratch positions clear of the final positions that are
+        // assigned in the second update below
+        $this->pdo->exec(
+            "UPDATE {$this->table_xml}
+            SET pos = pos + 1125899906842624
+            WHERE id_doc = " . (int) $this->doc_id . " AND id_parent = " . (int) $parent_id . "
+            ORDER BY pos DESC"
+        );
+
+        // ids come from the database and positions are calculated from
+        // POS_GAP, interpolating the integers cannot inject anything
+        $this->pdo->exec(
+            "UPDATE {$this->table_xml}
+            SET pos = CASE id{$case} END
+            WHERE id_doc = " . (int) $this->doc_id . " AND id IN (" . implode(',', $id_list) . ")"
+        );
     }
     // }}}
 
@@ -793,7 +959,7 @@ class Document
 
         try {
             $target_id = $this->getParentIdById($id_to_replace);
-            $target_pos = $this->getPosById($id_to_replace);
+            $target_pos = $this->getIndexById($id_to_replace);
 
             $this->deleteNodePrivate($id_to_replace);
 
@@ -827,7 +993,7 @@ class Document
 
         // get parent and position for new node
         $target_id = $this->getParentIdById($node_id);
-        $target_pos = $this->getPosById($node_id) + 1;
+        $target_pos = $this->getIndexById($node_id) + 1;
         $dth = $this->getDoctypeHandler();
 
         if ($dth->isAllowedMove($node_id, $target_id)) {
@@ -935,7 +1101,7 @@ class Document
             $this->beginTransactionAltering();
 
             try {
-                $target_pos = $this->getPosById($target_id);
+                $target_pos = $this->getIndexById($target_id);
                 $parent_id = $this->moveNodePrivate($node_id, $target_parent_id, $target_pos);
             } catch (\Throwable $e) {
                 $this->rollBackTransaction();
@@ -970,7 +1136,7 @@ class Document
             $this->beginTransactionAltering();
 
             try {
-                $target_pos = $this->getPosById($target_id) + 1;
+                $target_pos = $this->getIndexById($target_id) + 1;
                 $parent_id = $this->moveNodePrivate($node_id, $target_parent_id, $target_pos);
             } catch (\Throwable $e) {
                 $this->rollBackTransaction();
@@ -1115,9 +1281,8 @@ class Document
      */
     protected function deleteNodePrivate($node_id)
     {
-        // get parent and position (enables other node positions to be updated after delete)
+        // get parent (needed by the doctype handler and as return value)
         $target_id = $this->getParentIdById($node_id);
-        $target_pos = $this->getPosById($node_id);
 
         $dth = $this->getDoctypeHandler();
 
@@ -1165,18 +1330,6 @@ class Document
                     ]);
                 }
             }
-
-            // update position of remaining nodes
-            $query = $this->pdo->prepare(
-                "UPDATE {$this->table_xml}
-                    SET pos=pos-1
-                    WHERE id_parent = :node_parent_id AND pos > :node_pos AND id_doc = :doc_id",
-            );
-            $query->execute([
-                'node_parent_id' => $target_id,
-                'node_pos' => $target_pos,
-                'doc_id' => $this->doc_id,
-            ]);
         }
         return $target_id;
     }
@@ -1199,57 +1352,29 @@ class Document
     {
         $result = false;
         $node_parent_id = $this->getParentIdById($node_id);
-        $node_pos = $this->getPosById($node_id);
+        $node_index = $this->getIndexById($node_id);
 
-        if ($target_id == $node_parent_id && $target_pos > $node_pos) {
+        if ($target_id == $node_parent_id && $target_pos > $node_index) {
             $target_pos--;
         }
 
-        if ($target_id != $node_parent_id || $target_pos != $node_pos) {
-            // remove node from parent
-            $query = $this->pdo->prepare(
-                "UPDATE {$this->table_xml}
-                SET id_doc=NULL, id_parent=NULL, pos=NULL
-                WHERE id = :node_id AND id_doc = :doc_id",
-            );
-            $query->execute([
-                'node_id' => $node_id,
-                'doc_id' => $this->doc_id,
-            ]);
-            // update position on source position
-            $query = $this->pdo->prepare(
-                "UPDATE {$this->table_xml}
-                SET pos=pos-1
-                WHERE id_parent = :node_parent_id AND pos > :node_pos AND id_doc = :doc_id",
-            );
-            $query->execute([
-                'node_parent_id' => $node_parent_id,
-                'node_pos' => $node_pos,
-                'doc_id' => $this->doc_id,
-            ]);
+        if ($target_id != $node_parent_id || $target_pos != $node_index) {
+            // with sparse positions the node only has to be reattached
+            // between its new neighbours, all other nodes keep their
+            // positions
+            $pos = $this->positionForIndex($target_id, $target_pos, $node_id);
 
-            // update positions on target position
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table_xml}
-                SET pos=pos+1
-                WHERE id_parent = :target_id AND pos >= :target_pos AND id_doc = :doc_id",
+                SET id_doc = :doc_id, id_parent = :target_id, pos = :pos
+                WHERE id = :node_id AND id_doc = :node_doc_id",
             );
             $query->execute([
                 'target_id' => $target_id,
-                'target_pos' => $target_pos,
-                'doc_id' => $this->doc_id,
-            ]);
-            // reattach node at target position
-            $query = $this->pdo->prepare(
-                "UPDATE {$this->table_xml}
-                SET id_doc = :doc_id, id_parent = :target_id, pos = :target_pos
-                WHERE id = :node_id",
-            );
-            $query->execute([
-                'target_id' => $target_id,
-                'target_pos' => $target_pos,
+                'pos' => $pos,
                 'node_id' => $node_id,
                 'doc_id' => $this->doc_id,
+                'node_doc_id' => $this->doc_id,
             ]);
 
             $this->updateLastChange();
@@ -1289,7 +1414,7 @@ class Document
     protected function copyNodeWithOffset($node_id, $target_id, $target_pos_offset = 0)
     {
         $target_parent_id = $this->getParentIdById($target_id);
-        $target_pos = $this->getPosById($target_id) + $target_pos_offset;
+        $target_pos = $this->getIndexById($target_id) + $target_pos_offset;
         $copy_id = $this->copyNodePrivate($node_id, $target_parent_id, $target_pos);
 
         return $copy_id;
@@ -1574,10 +1699,14 @@ class Document
     }
     // }}}
     // {{{ getTargetPos
+    /**
+     * gets the index a child would get when appended to the child list,
+     * i.e. the number of current children
+     */
     protected function getTargetPos($target_id)
     {
         $query = $this->pdo->prepare(
-            "SELECT IFNULL(MAX(xml.pos), -1) + 1 AS pos
+            "SELECT COUNT(*) AS pos
             FROM {$this->table_xml} AS xml
             WHERE xml.id_parent = :target_id AND id_doc = :doc_id",
         );
@@ -1644,7 +1773,7 @@ class Document
         } else {
             // set target_id/pos/doc
             $target_id = $this->getParentIdById($rootId);
-            $target_pos = $this->getPosById($rootId);
+            $target_pos = $this->getIndexById($rootId);
 
             if ($target_id === false) {
                 $target_id = null;
@@ -1756,7 +1885,9 @@ class Document
 
         for ($i = 1; $i < $nodes; $i++) {
             if (($node_array[$i]['node']->nodeType == XML_ELEMENT_NODE) == $xml_element_node) {
-                $node_array[$i]['id'] = $this->saveNodeToDb($node_array[$i]['node'], $node_array[$i]['id'], $node_array[$node_array[$i]['parent_index']]['id'], $node_array[$i]['pos']);
+                // children of a new subtree are spaced with the standard
+                // gap right away
+                $node_array[$i]['id'] = $this->saveNodeToDb($node_array[$i]['node'], $node_array[$i]['id'], $node_array[$node_array[$i]['parent_index']]['id'], ($node_array[$i]['pos'] + 1) * self::POS_GAP);
             }
         }
         $this->insertNodeQuery = null;
@@ -1888,16 +2019,10 @@ class Document
             $attr_str = $this->getAttributeString($attributes);
 
             if ($target_id !== null && $increase_pos) {
-                $query = $this->pdo->prepare(
-                    "UPDATE {$this->table_xml}
-                    SET pos = pos + 1
-                    WHERE id_parent = :target_id AND pos >= :target_pos AND id_doc = :doc_id",
-                );
-                $query->execute([
-                    'target_id' => $target_id,
-                    'target_pos' => $target_pos,
-                    'doc_id' => $this->doc_id,
-                ]);
+                // sparse positioning: the new node gets a position
+                // between its future neighbours, the other children keep
+                // theirs
+                $target_pos = $this->positionForIndex($target_id, $target_pos);
             }
 
             $node_type = 'ELEMENT_NODE';

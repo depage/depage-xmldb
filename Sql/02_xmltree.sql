@@ -25,3 +25,27 @@ CREATE TABLE `_xmltree` (
 /*
     @version 2.0.0
 */
+
+/*
+    @version 2.2.0
+
+    Sparse sibling positions: instead of renumbering the whole child list
+    on every insert/delete, sibling positions are spaced by a gap (65536)
+    and new nodes are positioned between their future neighbours.
+    pos grows to bigint to leave room for midpoint positions, existing
+    rows are renumbered to multiples of the gap and a unique index
+    enforces that no two siblings share a position.
+*/
+ALTER TABLE `_xmltree` MODIFY `pos` bigint unsigned DEFAULT NULL;
+
+UPDATE `_xmltree` AS tree
+JOIN (
+    SELECT
+        id,
+        (ROW_NUMBER() OVER (PARTITION BY id_doc, id_parent ORDER BY pos, id) - 1) * 65536 AS new_pos
+    FROM `_xmltree`
+    WHERE id_doc IS NOT NULL
+) AS positions ON positions.id = tree.id
+SET tree.pos = positions.new_pos;
+
+ALTER TABLE `_xmltree` ADD UNIQUE KEY `sibling` (`id_doc`, `id_parent`, `pos`);
