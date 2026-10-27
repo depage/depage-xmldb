@@ -37,7 +37,14 @@ class DocumentTest extends XmlDbTestCase
         $params = [$id];
         $statement->execute($params);
 
-        return $statement->fetch(\PDO::FETCH_ASSOC);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+
+        // the subhash is a derived value, it is checked in SubhashTest
+        if ($row) {
+            unset($row['subhash']);
+        }
+
+        return $row;
     }
     // }}}
 

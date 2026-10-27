@@ -59,6 +59,13 @@ class Document
 
     private $childNodeQuery = null;
     private $insertNodeQuery = null;
+
+    /**
+     * set by updateLastChange, checked in endTransaction: the subhashes
+     * of the document are recalculated before the outermost altering
+     * transaction is committed
+     */
+    protected $subhashesDirty = false;
     // }}}
     // {{{ constructor
     /**
@@ -2083,6 +2090,13 @@ class Document
     // {{{ endTransaction
     public function endTransaction()
     {
+        if ($this->subhashesDirty && $this->xmlDb->transactions == 1) {
+            // last open transaction level; the subhashes still have to be
+            // written before the actual commit runs to stay atomic
+            $this->subhashesDirty = false;
+            $this->refreshSubhashes();
+        }
+
         $altered = $this->xmlDb->endTransaction();
 
         if ($altered) {
@@ -2109,6 +2123,8 @@ class Document
      */
     public function updateLastChange($timestamp = null, $uid = null)
     {
+        $this->subhashesDirty = true;
+
         $query = $this->pdo->prepare(
             "UPDATE {$this->table_docs}
             SET
@@ -2139,6 +2155,94 @@ class Document
         ];
 
         return ($query->execute($params)) ? $timestamp : false;
+    }
+    // }}}
+    // {{{ refreshSubhashes
+    /**
+     * recalculates the merkle style subhash of every node of the
+     * document; a subhash covers the stored type, name and value of the
+     * node plus the subhashes of all its children, so comparing one hash
+     * answers whether a whole subtree changed. subhashes do not include
+     * node ids, equal subtrees always have equal hashes.
+     *
+     * nodes that already carry the hash they would be recalculated to
+     * are not touched; has to run inside a transaction (called by
+     * endTransaction before the commit).
+     */
+    protected function refreshSubhashes()
+    {
+        $pad = self::SORTKEY_PAD;
+
+        $query = $this->pdo->prepare(
+            "WITH RECURSIVE tree (id, id_parent, lvl, sortkey) AS
+                (
+                SELECT id, id_parent, 0, CAST('' AS CHAR(5000))
+                    FROM {$this->table_xml} AS xml
+                    WHERE id_doc = :doc_id AND id_parent IS NULL
+                UNION ALL
+                SELECT x.id, x.id_parent, lvl + 1, CONCAT(sortkey, LPAD(IFNULL(x.pos + 1, 0), {$pad}, '0'))
+                    FROM {$this->table_xml} AS x INNER JOIN tree AS t
+                    ON x.id_parent = t.id
+                )
+                SELECT xml.id, xml.id_parent, xml.type, xml.name, xml.value, xml.subhash
+                FROM tree JOIN {$this->table_xml} AS xml ON tree.id = xml.id
+                ORDER BY tree.lvl DESC, xml.id_parent ASC, xml.pos ASC;",
+            \Depage\Db\Pdo::unbuffered(),
+        );
+        $query->execute([
+            'doc_id' => $this->doc_id,
+        ]);
+
+        // deepest level first, so a node is only reached after all of its
+        // children contributed their hash
+        $child_hashes = [];
+        $hashes = [];
+
+        while ($row = $query->fetchObject()) {
+            $hash = $this->getNodeHash($row->type, $row->name, $row->value, $child_hashes[$row->id] ?? []);
+
+            if ($row->subhash !== $hash) {
+                $hashes[$row->id] = $hash;
+            }
+
+            if ($row->id_parent !== null) {
+                $child_hashes[$row->id_parent][] = $hash;
+            }
+            unset($child_hashes[$row->id]);
+        }
+        // no statements may run while the unbuffered result is open
+        $query->closeCursor();
+
+        if (!empty($hashes)) {
+            $update = $this->pdo->prepare(
+                "UPDATE {$this->table_xml}
+                SET subhash = :subhash
+                WHERE id_doc = :doc_id AND id = :id",
+            );
+            foreach ($hashes as $id => $hash) {
+                $update->execute([
+                    'subhash' => $hash,
+                    'doc_id' => $this->doc_id,
+                    'id' => $id,
+                ]);
+            }
+        }
+    }
+    // }}}
+    // {{{ getNodeHash
+    /**
+     * canonical hash over one node row and the hashes of its children;
+     * the "v1" prefix pins the canonicalization, changing the format
+     * invalidates all stored hashes on the next recalculation
+     *
+     * @param $type (string) node type as stored in the database
+     * @param $name (string) node name as stored in the database
+     * @param $value (string) node value as stored in the database
+     * @param $child_hashes (array) hashes of the children in document order
+     */
+    protected function getNodeHash($type, $name, $value, array $child_hashes)
+    {
+        return hash('sha256', 'v1|' . $type . '|' . $name . '|' . $value . '|' . implode('|', $child_hashes));
     }
     // }}}
     // {{{ clearCache

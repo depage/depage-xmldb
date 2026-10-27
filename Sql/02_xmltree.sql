@@ -49,3 +49,14 @@ JOIN (
 SET tree.pos = positions.new_pos;
 
 ALTER TABLE `_xmltree` ADD UNIQUE KEY `sibling` (`id_doc`, `id_parent`, `pos`);
+
+/*
+    @version 2.3.0
+
+    Merkle style subhash per node (sha256 over the canonicalized row
+    content and the subhashes of all children), used to find the changed
+    subtrees of a document without comparing every single node. NULL
+    marks rows that were not calculated yet, they are filled by the next
+    change to the document.
+*/
+ALTER TABLE `_xmltree` ADD COLUMN `subhash` char(64) DEFAULT NULL AFTER `type`;
