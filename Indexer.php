@@ -41,6 +41,11 @@ class Indexer
     /**
      * resolves an xpath query to a list of IndexerResult objects
      *
+     * the values of all matched nodes are fetched with a fixed number of
+     * queries (one for the node ids, one for the attributes/document ids
+     * and, for element targets, one for the text content of the
+     * subtrees), independent of the number of matches
+     *
      * @param   string  $xpath  xpath to target node or attribute
      * @param   int     $docId  optional id of document to restrict to
      *
@@ -54,34 +59,40 @@ class Indexer
         $nodeIds = $this->xmlDb->getNodeIdsByXpath($elementXpath, $docId);
         $nodeIds = is_array($nodeIds) ? $nodeIds : [];
 
+        if (empty($nodeIds)) {
+            return [];
+        }
+
+        $nodeData = $this->xmlDb->getIndexNodeData($nodeIds);
+
+        $texts = null;
+        if (is_null($attrName)) {
+            $texts = $this->xmlDb->getIndexTextContent($nodeIds);
+        }
+
         $results = [];
 
         foreach ($nodeIds as $nodeId) {
-            $doc = is_null($docId)
-                ? $this->xmlDb->getDocByNodeId($nodeId)
-                : $this->xmlDb->getDoc($docId);
-
-            if ($doc === false) {
+            if (!isset($nodeData[$nodeId])) {
                 continue;
             }
+            $attributes = $nodeData[$nodeId]['attributes'];
 
-            $lang = $doc->getAttribute($nodeId, 'lang');
-            $lang = ($lang === false) ? null : $lang;
+            $lang = $attributes['lang'] ?? null;
 
             if (is_null($attrName)) {
-                $subdoc = $doc->getSubdocByNodeId($nodeId, false);
-                $value = $subdoc ? (string) $subdoc->textContent : '';
+                $value = $texts[$nodeId] ?? '';
             } else {
                 // a missing attribute yields no result at all
-                $value = $doc->getAttribute($nodeId, $attrName);
-
-                if ($value === false) {
+                if (!isset($attributes[$attrName])) {
                     continue;
                 }
+
+                $value = $attributes[$attrName];
             }
 
             $results[] = new IndexerResult(
-                $doc->getDocId(),
+                $nodeData[$nodeId]['doc_id'],
                 $nodeId,
                 $lang,
                 $value,

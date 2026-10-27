@@ -434,6 +434,96 @@ class XmlDb implements XmlGetter
     }
     // }}}
 
+    // {{{ getIndexNodeData
+    /**
+     * loads the document id and the attributes of the given nodes with a
+     * single query (used by the Indexer to resolve targeted attributes
+     * and the lang attribute without a round trip per node); non element
+     * nodes get an empty attribute map
+     *
+     * @param $nodeIds (array) database ids of the nodes
+     *
+     * @return array node id => [ 'doc_id' => int, 'attributes' => array ]
+     */
+    public function getIndexNodeData($nodeIds)
+    {
+        $nodeIds = array_values(array_unique(array_map('intval', $nodeIds)));
+
+        $nodeData = [];
+        if (empty($nodeIds)) {
+            return $nodeData;
+        }
+
+        $query = $this->pdo->prepare(
+            "SELECT xml.id, xml.id_doc, xml.type, xml.value
+            FROM {$this->table_xml} AS xml
+            WHERE xml.id IN (" . implode(", ", $nodeIds) . ")",
+        );
+        $query->execute();
+
+        foreach ($query->fetchAll(\PDO::FETCH_OBJ) as $row) {
+            $nodeData[(int) $row->id] = [
+                'doc_id' => (int) $row->id_doc,
+                'attributes' => ($row->type == 'ELEMENT_NODE')
+                    ? Document::parseAttributeString($row->value)
+                    : [],
+            ];
+        }
+
+        return $nodeData;
+    }
+    // }}}
+    // {{{ getIndexTextContent
+    /**
+     * concatenates the descendant text nodes of the given nodes with a
+     * single query, in document order; that is the text content
+     * Document::getSubdocByNodeId assembles (processing instructions and
+     * comments never contribute to textContent and entity references are
+     * not emitted by getSubdocByNodeId either)
+     *
+     * @param $nodeIds (array) database ids of the nodes
+     *
+     * @return array node id => text content (nodes without text are
+     *               absent from the result)
+     */
+    public function getIndexTextContent($nodeIds)
+    {
+        $nodeIds = array_values(array_unique(array_map('intval', $nodeIds)));
+
+        $texts = [];
+        if (empty($nodeIds)) {
+            return $texts;
+        }
+
+        $pad = Document::SORTKEY_PAD;
+        $query = $this->pdo->prepare(
+            "WITH RECURSIVE sub (root_id, id, sortkey) AS
+                (
+                SELECT xml.id, xml.id, CAST('' AS CHAR(5000))
+                    FROM {$this->table_xml} AS xml
+                    WHERE xml.id IN (" . implode(", ", $nodeIds) . ")
+                UNION ALL
+                SELECT sub.root_id, x.id, CONCAT(sub.sortkey, LPAD(IFNULL(x.pos + 1, 0), {$pad}, '0'))
+                    FROM {$this->table_xml} AS x INNER JOIN sub
+                    ON x.id_parent = sub.id
+                )
+            SELECT sub.root_id, xml.value
+            FROM sub INNER JOIN {$this->table_xml} AS xml ON xml.id = sub.id
+            WHERE xml.type = 'TEXT_NODE'
+            ORDER BY sub.root_id ASC, sub.sortkey ASC",
+        );
+        $query->execute();
+
+        foreach ($query->fetchAll(\PDO::FETCH_OBJ) as $row) {
+            $rootId = (int) $row->root_id;
+
+            $texts[$rootId] = ($texts[$rootId] ?? '') . $row->value;
+        }
+
+        return $texts;
+    }
+    // }}}
+
     // {{{ createDoc
     /**
      * CreateDoc

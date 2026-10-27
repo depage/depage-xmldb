@@ -124,6 +124,89 @@ class IndexerTest extends XmlDbTestCase
         $this->assertNull($results[0]->lang);
     }
     // }}}
+
+    // {{{ testQueryElementInnerTextMultiple
+    /**
+     * the batched innerText resolution has to return exactly what the
+     * subdocument based resolution returned, for every matched node
+     * (document 5 has nested pages, which are overlapping subtrees)
+     */
+    public function testQueryElementInnerTextMultiple()
+    {
+        $results = $this->indexer->query('//pg:page', 5);
+
+        $this->assertGreaterThan(1, count($results));
+
+        $byNode = [];
+        foreach ($results as $result) {
+            $byNode[$result->nodeId] = $result;
+        }
+
+        foreach ($byNode as $nodeId => $result) {
+            $expected = (string) $this->doc->getSubdocByNodeId($nodeId, false)->textContent;
+
+            $this->assertSame($expected, $result->value, "innerText of node {$nodeId}");
+            $this->assertSame(5, $result->docId);
+        }
+
+        // the nested subtree is not just its own text but includes the
+        // text of its children
+        $root = $byNode[15] ?? reset($byNode);
+        $this->assertStringContainsString('bla bla', $root->value);
+    }
+    // }}}
+    // {{{ testQueryResolvesLang
+    /**
+     * the lang attribute of the matched node is reported independently
+     * of the targeted attribute
+     */
+    public function testQueryResolvesLang()
+    {
+        $this->doc->setAttribute(19, 'lang', 'de');
+
+        $results = $this->indexer->query('//pg:page/@name', 5);
+
+        $lang = [];
+        foreach ($results as $result) {
+            $lang[$result->nodeId] = $result->lang;
+        }
+
+        $this->assertSame('de', $lang[19]);
+        unset($lang[19]);
+        $this->assertSame([], array_filter($lang, fn($v) => !is_null($v)));
+    }
+    // }}}
+    // {{{ testQueryUsesConstantNumberOfStatements
+    /**
+     * resolving many nodes must not multiply the queries: the number of
+     * executed statements is independent of the number of matches
+     */
+    public function testQueryUsesConstantNumberOfStatements()
+    {
+        $measure = function (string $xpath) {
+            $status = fn() => (int) $this->pdo->query("SHOW SESSION STATUS LIKE 'Com_select'")->fetch(\PDO::FETCH_ASSOC)['Value'];
+
+            $before = $status();
+            $count = count($this->indexer->query($xpath, 5));
+            $delta = $status() - $before;
+
+            return [$delta, $count];
+        };
+
+        // attribute target: one node versus six
+        [$fewDelta, $few] = $measure('//dpg:pages/@name');
+        [$manyDelta, $many] = $measure('//pg:page/@name');
+
+        $this->assertSame(1, $few);
+        $this->assertGreaterThan(1, $many);
+        $this->assertSame($fewDelta, $manyDelta, 'statement count must not depend on the number of matches');
+
+        // element target: the text content of all subtrees is one
+        // additional statement, not one per node
+        [$textDelta] = $measure('//pg:page');
+        $this->assertLessThanOrEqual($manyDelta + 1, $textDelta);
+    }
+    // }}}
 }
 
 /* vim:set ft=php sw=4 sts=4 fdm=marker et : */

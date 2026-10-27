@@ -734,12 +734,26 @@ class Document
         ]);
 
         if ($result = $query->fetchObject()) {
-            $matches = preg_split('/(="|"$|" )/', $result->value);
-            $matches = array_chunk($matches, 2);
-            foreach ($matches as $match) {
-                if ($match[0] != '') {
-                    $attributes[$match[0]] = htmlspecialchars_decode($match[1]);
-                }
+            $attributes = self::parseAttributeString($result->value);
+        }
+
+        return $attributes;
+    }
+    // }}}
+    // {{{ parseAttributeString
+    /**
+     * parses a stored attribute string into a name => value map; used by
+     * getAttributes and by the batch value resolution of the Indexer
+     */
+    public static function parseAttributeString($value)
+    {
+        $attributes = [];
+
+        $matches = preg_split('/(="|"$|" )/', (string) $value);
+        $matches = array_chunk($matches, 2);
+        foreach ($matches as $match) {
+            if ($match[0] != '') {
+                $attributes[$match[0]] = htmlspecialchars_decode($match[1]);
             }
         }
 
