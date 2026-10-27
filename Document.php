@@ -37,6 +37,13 @@ class Document
      * fewer rows than deleting and reinserting the whole tree would
      */
     public const PATCH_MAX_CHANGE_RATIO = 0.4;
+
+    /**
+     * maximum number of nodes written with a single insert statement by
+     * saveNodesByType(); the auto incremented ids of such a batch are
+     * read back with one select over the unique sibling index
+     */
+    public const SAVE_BATCH_SIZE = 200;
     // }}}
 
     // {{{ variables
@@ -2353,15 +2360,148 @@ class Document
     // {{{ saveNodesByType
     protected function saveNodesByType(&$node_array, $xml_element_node)
     {
-        $nodes = count($node_array);
+        $batch = [];
+        $batch_null = [];
+        $batch_parents = [];
+        $batch_values = [];
+        $batch_params = [];
 
-        for ($i = 1; $i < $nodes; $i++) {
-            if (($node_array[$i]['node']->nodeType == XML_ELEMENT_NODE) == $xml_element_node) {
-                // children of a new subtree are spaced with the standard
-                // gap right away
-                $node_array[$i]['id'] = $this->saveNodeToDb($node_array[$i]['node'], $node_array[$i]['id'], $node_array[$node_array[$i]['parent_index']]['id'], ($node_array[$i]['pos'] + 1) * self::POS_GAP);
+        $flush = function () use (
+            &$node_array,
+            &$batch,
+            &$batch_null,
+            &$batch_parents,
+            &$batch_values,
+            &$batch_params
+        ) {
+            if (count($batch) == 0) {
+                return;
             }
+
+            $query = $this->pdo->prepare(
+                "INSERT {$this->table_xml}
+                    (id, id_parent, id_doc, pos, name, value, type)
+                VALUES
+                    " . implode(", ", $batch_values) . "
+                ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
+            );
+            $query->execute($batch_params);
+
+            if (count($batch_null) > 0) {
+                // the nodes of the batch without a preferred id got one
+                // from the auto increment (which can not be trusted to
+                // hand out consecutive ids in a multi row insert); the
+                // unique sibling index identifies them again, the
+                // parents of a batch only have children from this save
+                $parents = [];
+                foreach (array_keys($batch_parents) as $parent_id) {
+                    $parents[] = (int) $parent_id;
+                }
+
+                $ids_query = $this->pdo->prepare(
+                    "SELECT id, id_parent, pos
+                    FROM {$this->table_xml}
+                    WHERE id_doc = :doc_id AND id_parent IN (" . implode(", ", $parents) . ")"
+                );
+                $ids_query->execute([
+                    'doc_id' => $this->doc_id,
+                ]);
+
+                $ids_by_key = [];
+                foreach ($ids_query->fetchAll(\PDO::FETCH_OBJ) as $row) {
+                    $ids_by_key[$row->id_parent . ':' . $row->pos] = (int) $row->id;
+                }
+                $ids_query->closeCursor();
+
+                foreach (array_keys($batch_null) as $index) {
+                    $parent_id = (int) $node_array[$node_array[$index]['parent_index']]['id'];
+                    $pos = ($node_array[$index]['pos'] + 1) * self::POS_GAP;
+
+                    if (!isset($ids_by_key[$parent_id . ':' . $pos])) {
+                        throw new Exceptions\XmlDbException("Inserted node could not be found again after batch insert.");
+                    }
+
+                    $node_array[$index]['id'] = $ids_by_key[$parent_id . ':' . $pos];
+                }
+            }
+
+            foreach ($batch as $index) {
+                if ($node_array[$index]['node']->nodeType == XML_ELEMENT_NODE) {
+                    $node_array[$index]['node']->setAttributeNS(
+                        $this->db_ns->uri,
+                        $this->db_ns->ns . ':' . $this->id_attribute,
+                        $node_array[$index]['id']
+                    );
+                }
+            }
+
+            $batch = [];
+            $batch_null = [];
+            $batch_parents = [];
+            $batch_values = [];
+            $batch_params = [];
+        };
+
+        // writing the tree level by level makes sure that every node's
+        // parent has been saved (and its auto increment id read back)
+        // before the node itself is written; within one level the
+        // parents are always already resolved, so no batch has to be
+        // interrupted
+        $depths = [0];
+        $max_depth = 0;
+        foreach ($node_array as $i => $node) {
+            if ($i == 0) {
+                continue;
+            }
+            $depths[$i] = $depths[$node['parent_index']] + 1;
+            $max_depth = max($max_depth, $depths[$i]);
         }
+
+        for ($level = 1; $level <= $max_depth; $level++) {
+            foreach ($node_array as $i => $node) {
+                if (
+                    $depths[$i] != $level
+                    || (($node['node']->nodeType == XML_ELEMENT_NODE) != $xml_element_node)
+                ) {
+                    continue;
+                }
+
+                $parent_id = $node_array[$node['parent_index']]['id'];
+
+                [$type, $name, $value] = $this->getNodeTypeData($node['node']);
+                $value = \Normalizer::normalize($value);
+
+                $batch[] = $i;
+
+                if (is_null($node['id'])) {
+                    $batch_null[$i] = true;
+                }
+                $batch_parents[(int) $parent_id] = true;
+
+                $batch_values[] = '(?, ?, ?, ?, ?, ?, ?)';
+                array_push(
+                    $batch_params,
+                    $node['id'],
+                    $parent_id,
+                    $this->doc_id,
+                    ($node['pos'] + 1) * self::POS_GAP,
+                    $name,
+                    $value,
+                    $type
+                );
+
+                if (count($batch) >= self::SAVE_BATCH_SIZE) {
+                    $flush();
+                }
+            }
+
+            // the auto increment ids of this level have to be known
+            // before its children can reference them
+            $flush();
+        }
+
+        $flush();
+
         $this->insertNodeQuery = null;
     }
     // }}}
@@ -2644,19 +2784,25 @@ class Document
         // no statements may run while the unbuffered result is open
         $query->closeCursor();
 
-        if (!empty($hashes)) {
-            $update = $this->pdo->prepare(
-                "UPDATE {$this->table_xml}
-                SET subhash = :subhash
-                WHERE id_doc = :doc_id AND id = :id",
-            );
-            foreach ($hashes as $id => $hash) {
-                $update->execute([
-                    'subhash' => $hash,
-                    'doc_id' => $this->doc_id,
-                    'id' => $id,
-                ]);
+        // the hashes are written in batches; subhash takes part in no
+        // unique index, so a single case update cannot collide
+        $hashes = array_chunk($hashes, self::SAVE_BATCH_SIZE, true);
+        foreach ($hashes as $chunk) {
+            $case = '';
+            $ids = [];
+            foreach ($chunk as $id => $hash) {
+                // ids come from the database, hashes are sha256 hex
+                // strings, interpolating them cannot inject anything
+                $case .= ' WHEN ' . (int) $id . " THEN '" . $hash . "'";
+                $ids[] = (int) $id;
             }
+
+            $this->pdo->exec(
+                "UPDATE {$this->table_xml}
+                SET subhash = CASE id {$case} END
+                WHERE id_doc = " . (int) $this->doc_id . "
+                    AND id IN (" . implode(", ", $ids) . ")"
+            );
         }
     }
     // }}}
@@ -2679,6 +2825,11 @@ class Document
     // {{{ clearCache
     /**
      * clears the node-cache
+     *
+     * the whole document namespace is dropped, not only the caches of
+     * the changed nodes: every cached subdocument embeds the document's
+     * db:lastchange attribute in its root element, so any change to the
+     * document makes the cached subdocuments of all its nodes stale
      */
     public function clearCache()
     {
