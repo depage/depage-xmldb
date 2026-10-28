@@ -32,9 +32,10 @@ class Document
     public const POS_MIN_GAP = 16;
 
     /**
-     * savePatch() falls back to a full save() when more than this ratio of
-     * the nodes of the document changed; below that limit patching writes
-     * fewer rows than deleting and reinserting the whole tree would
+     * savePatch() falls back to a full save() and saveNodePatch() to a
+     * full saveNode() when more than this ratio of the nodes of the
+     * patched subtree changed; below that limit patching writes fewer
+     * rows than deleting and reinserting the tree would
      */
     public const PATCH_MAX_CHANGE_RATIO = 0.4;
 
@@ -84,8 +85,8 @@ class Document
     protected $subhashesDirty = false;
 
     /**
-     * statistics about the changes applied by the last savePatch() call,
-     * null when savePatch() fell back to a full save()
+     * statistics about the changes applied by the last savePatch() or
+     * saveNodePatch() call, null before the first incremental save
      */
     protected $lastPatchStats = null;
     // }}}
@@ -846,7 +847,6 @@ class Document
 
         try {
             $doc_info = $this->clearDoc();
-            $xml_text = $xml->saveXML();
 
             $namespaces = $this->getNamespaceString($xml);
 
@@ -894,6 +894,8 @@ class Document
      * a full save() is done instead when the root node was replaced, when
      * the document carries no database ids or when more than
      * PATCH_MAX_CHANGE_RATIO of the nodes changed.
+     *
+     * @see saveNodePatch() for incrementally saving a subtree
      *
      * @public
      *
@@ -950,8 +952,9 @@ class Document
     // {{{ getLastPatchStats
     /**
      * number of nodes that could be skipped/updated/deleted/inserted by
-     * the last savePatch() call, ['fallback' => true] when it fell back
-     * to a full save()
+     * the last savePatch()/saveNodePatch() call, ['fallback' => true]
+     * when it fell back to a full save()/saveNode(); the counts of a
+     * saveNodePatch() cover the patched subtree, not the whole document
      */
     public function getLastPatchStats()
     {
@@ -967,10 +970,36 @@ class Document
      */
     protected function planPatch(\DomDocument $xml, $doc_info)
     {
-        // run the document through the same pipeline save() uses, this
+        $root = $xml->documentElement;
+        $root_id = is_null($root) ? '' : $this->getNodeId($root);
+
+        if (empty($root_id) || (int) $root_id !== (int) $doc_info->rootid) {
+            // new document or the root node was replaced
+            return null;
+        }
+
+        return $this->planNodePatch($xml);
+    }
+    // }}}
+    // {{{ planNodePatch
+    /**
+     * compares the subtree rooted at $node with the nodes stored under
+     * the db:id its root element carries and collects the minimal set of
+     * changes into a plan for applyPatch(); returns null when the subtree
+     * can not be patched (replaced root, missing database id or too many
+     * changes)
+     *
+     * $check_root rejects the plan (instead of renaming the row in place)
+     * when the root node is not compatible with the row its id points
+     * to, i.e. was replaced by a node of another type or name;
+     * saveNodePatch() uses this to fall back to a full saveNode()
+     */
+    protected function planNodePatch($node, $check_root = false)
+    {
+        // run the subtree through the same pipeline save() uses, this
         // also applies the doctype whitespace handling
         $node_array = [];
-        $this->getNodeArrayForSaving($node_array, $xml);
+        $this->getNodeArrayForSaving($node_array, $node);
 
         if (count($node_array) == 0) {
             return null;
@@ -978,10 +1007,12 @@ class Document
 
         $root_id = $node_array[0]['id'];
 
-        if (empty($root_id) || (int) $root_id != (int) $doc_info->rootid) {
-            // new document or the root node was replaced
+        if (empty($root_id)) {
+            // new subtree or the root node was replaced
             return null;
         }
+
+        $root_id = (int) $root_id;
 
         // load the stored tree, children of each parent in document order
         $query = $this->pdo->prepare(
@@ -1005,8 +1036,31 @@ class Document
         }
         $query->closeCursor();
 
-        if (!isset($old_rows[(int) $doc_info->rootid])) {
+        if (!isset($old_rows[$root_id])) {
             return null;
+        }
+
+        if (
+            $check_root
+            && !$this->nodesCompatible($this->getNodeTypeData($node_array[0]['node']), $old_rows[$root_id])
+        ) {
+            // the root node replaced the node its id points to instead of
+            // being a changed version of it
+            return null;
+        }
+
+        // number of stored nodes below the subtree root; the change limit
+        // is checked against the size of the patched subtree instead of
+        // the whole document (for a document patch these are the same)
+        $old_subtree = 0;
+        $parents = [$root_id];
+        while (!empty($parents)) {
+            $parent_id = array_shift($parents);
+            $old_subtree++;
+
+            foreach ($old_children[$parent_id] ?? [] as $child_row) {
+                $parents[] = (int) $child_row->id;
+            }
         }
 
         // children of every node of the new document
@@ -1035,6 +1089,7 @@ class Document
         }
 
         $plan = [
+            'root_id' => $root_id,
             'deletes' => [],
             'updates' => [],
             'inserts' => [],
@@ -1045,12 +1100,12 @@ class Document
                 'deletes' => 0,
                 'inserts' => 0,
                 'renumber' => 0,
-                'old_nodes' => count($old_rows),
+                'old_nodes' => $old_subtree,
                 'new_nodes' => count($node_array),
             ],
         ];
 
-        $queue = [[0, (int) $doc_info->rootid]];
+        $queue = [[0, $root_id]];
 
         while (!empty($queue)) {
             [$index, $old_id] = array_shift($queue);
@@ -1173,12 +1228,12 @@ class Document
         }
 
         // structural changes: when more than PATCH_MAX_CHANGE_RATIO of
-        // the nodes have to be inserted or deleted, a full save() is
-        // cheaper and safer than patching; updated nodes only need one
-        // row write each and do not count into this
+        // the nodes of the subtree have to be inserted or deleted, a
+        // full save is cheaper and safer than patching; updated nodes
+        // only need one row write each and do not count into this
         $changed = count($plan['inserts']) + count($plan['deletes']);
 
-        if (count($old_rows) > 0 && $changed > self::PATCH_MAX_CHANGE_RATIO * max(count($old_rows), count($node_array))) {
+        if ($changed > self::PATCH_MAX_CHANGE_RATIO * max($old_subtree, count($node_array))) {
             return null;
         }
 
@@ -1369,6 +1424,61 @@ class Document
         $this->endTransaction();
 
         return $result;
+    }
+    // }}}
+
+    // {{{ saveNodePatch
+    /**
+     * saves a subtree of the document reusing the parts of the tree that
+     * did not change; works like savePatch() below $node: subtrees whose
+     * merkle subhash equals the subhash stored in the database are
+     * skipped without looking at their content, only changed nodes are
+     * updated and only added or removed subtrees are inserted or deleted.
+     *
+     * $node is expected to carry the database id of the node it is saved
+     * over (like the result of getNode()); elements of the subtree
+     * without a db:id are matched against the leftover children of their
+     * parent by position.
+     *
+     * a full saveNode() is done instead when the root node carries no
+     * database id, when it replaces the node its id points to or when
+     * more than PATCH_MAX_CHANGE_RATIO of the nodes of the subtree
+     * changed; parent and position of the subtree root are kept, as they
+     * are by saveNode().
+     *
+     * @public
+     *
+     * @param    $node (DomNode) subtree to save
+     *
+     * @returns $id (int) id of the root node of the subtree
+     */
+    public function saveNodePatch($node)
+    {
+        $plan = $this->planNodePatch($node, true);
+
+        if (is_null($plan)) {
+            $this->lastPatchStats = ['fallback' => true];
+
+            return (int) $this->saveNode($node);
+        }
+
+        $this->beginTransactionAltering();
+
+        try {
+            $this->applyPatch($plan);
+
+            $this->updateLastChange();
+        } catch (\Throwable $e) {
+            $this->rollBackTransaction();
+
+            throw $e;
+        }
+
+        $this->endTransaction();
+
+        $this->lastPatchStats = $plan['stats'] + ['fallback' => false];
+
+        return $plan['root_id'];
     }
     // }}}
 
