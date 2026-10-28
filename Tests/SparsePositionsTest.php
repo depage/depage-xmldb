@@ -223,6 +223,93 @@ class SparsePositionsTest extends XmlDbTestCase
         }
     }
     // }}}
+    // {{{ addDenseSiblings
+    /**
+     * adds $count empty elements below node 6 with positions right behind
+     * each other, so close together that inserting between two of them has
+     * to rebalance the child list
+     *
+     * @returns (array) ids of the added elements in the order of the child
+     *          list
+     */
+    protected function addDenseSiblings($count)
+    {
+        $max_pos = (int) $this->pdo->query(
+            "SELECT MAX(pos) FROM {$this->xmlTree} WHERE id_doc = 3 AND id_parent = 6"
+        )->fetchColumn();
+
+        $ids = [];
+
+        $query = $this->pdo->prepare(
+            "INSERT INTO {$this->xmlTree} (id_doc, id_parent, pos, name, value, type)
+            VALUES (3, 6, :pos, :name, '', 'ELEMENT_NODE')"
+        );
+
+        for ($i = 0; $i < $count; $i++) {
+            $query->execute([
+                'pos' => $max_pos + $i + 1,
+                'name' => 'dense' . $i,
+            ]);
+            $ids[] = (int) $this->pdo->lastInsertId();
+        }
+
+        return $ids;
+    }
+    // }}}
+    // {{{ getPositionsOfChildren
+    /**
+     * the child list of node 6 as [id, pos] pairs, ordered by position
+     */
+    protected function getPositionsOfChildren()
+    {
+        return $this->pdo->query(
+            "SELECT id, pos FROM {$this->xmlTree}
+            WHERE id_doc = 3 AND id_parent = 6 ORDER BY pos ASC"
+        )->fetchAll(\PDO::FETCH_NUM);
+    }
+    // }}}
+    // {{{ testRebalanceOfMoreSiblingsThanOneBatch
+    /**
+     * rebalancing writes the new positions in batches; a child list that
+     * is longer than one batch has to end up with an even distance between
+     * all of its siblings, not only between the first batch of them
+     */
+    public function testRebalanceOfMoreSiblingsThanOneBatch()
+    {
+        $count = DocumentTestClass::SAVE_BATCH_SIZE + 25;
+        $this->addDenseSiblings($count);
+
+        $this->doc->rebalancePositions(6);
+
+        $children = $this->getPositionsOfChildren();
+        $this->assertCount($count + 2, $children, 'the two nodes of the dataset besides the added ones');
+
+        foreach ($children as $index => [$id, $pos]) {
+            $this->assertSame(
+                ($index + 1) * DocumentTestClass::POS_GAP,
+                (int) $pos,
+                "child {$id} of batch " . (int) floor($index / DocumentTestClass::SAVE_BATCH_SIZE) . ' was not renumbered'
+            );
+        }
+    }
+    // }}}
+    // {{{ testRebalanceKeepsTheChildOrder
+    /**
+     * rebalancing numbers the child list without reordering it
+     */
+    public function testRebalanceKeepsTheChildOrder()
+    {
+        $this->addDenseSiblings(5);
+
+        $before = array_map(fn($child) => (int) $child[0], $this->getPositionsOfChildren());
+
+        $this->doc->rebalancePositions(6);
+
+        $after = array_map(fn($child) => (int) $child[0], $this->getPositionsOfChildren());
+
+        $this->assertSame($before, $after);
+    }
+    // }}}
 }
 
 /* vim:set ft=php fenc=UTF-8 sw=4 sts=4 fdm=marker et : */

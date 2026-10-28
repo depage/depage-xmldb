@@ -188,6 +188,54 @@ class SubhashTest extends XmlDbTestCase
         $this->assertSame($before, $after);
     }
     // }}}
+    // {{{ testSubhashesOfMoreNodesThanOneBatch
+    /**
+     * the recalculated hashes of a document that is bigger than one batch
+     * are written with several statements; every node has to end up with
+     * its own hash, and equal subtrees of different batches have to share
+     * theirs, which shows hashes that were written to the wrong nodes
+     */
+    public function testSubhashesOfMoreNodesThanOneBatch()
+    {
+        $count = 2 * DocumentTestClass::SAVE_BATCH_SIZE + 5;
+
+        $dom = new \Depage\Xml\Document();
+        $dom->loadXML($this->doc->getXml(false));
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('pg', 'http://www.depagecms.net/ns/page');
+        $home = $xpath->query('//pg:page[@name="Home3"]')->item(0);
+
+        for ($i = 0; $i < $count; $i++) {
+            $same = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:same');
+            $same->appendChild($dom->createTextNode('content ' . ($i % 2)));
+            $home->appendChild($same);
+        }
+
+        $this->doc->save($dom);
+
+        // the tree is far bigger than one batch and every node has a hash
+        $subhashes = $this->getSubhashes();
+        $this->assertGreaterThan(2 * DocumentTestClass::SAVE_BATCH_SIZE, count($subhashes));
+        foreach ($subhashes as $id => $subhash) {
+            $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $subhash, "node {$id}");
+        }
+
+        $this->assertSame(
+            $count,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM {$this->xmlTree} WHERE id_doc = 3 AND name = 'pg:same'"
+            )->fetchColumn()
+        );
+
+        // the paragraphs alternate two contents, so equal subtrees all over
+        // the batches have to share exactly two hashes
+        $distinct = (int) $this->pdo->query(
+            "SELECT COUNT(DISTINCT subhash) FROM {$this->xmlTree} WHERE id_doc = 3 AND name = 'pg:same'"
+        )->fetchColumn();
+        $this->assertSame(2, $distinct, 'equal subtrees of different batches must share their subhash');
+    }
+    // }}}
 }
 
 /* vim:set ft=php fenc=UTF-8 sw=4 sts=4 fdm=marker et : */

@@ -93,6 +93,61 @@ class SavePatchTest extends XmlDbTestCase
         return $pages->length > 0 ? $pages->item(0) : null;
     }
     // }}}
+    // {{{ getElementRowIds
+    /**
+     * ids of the element rows of the document in the database
+     */
+    protected function getElementRowIds($rows = null)
+    {
+        $rows = is_null($rows) ? $this->getNodeRows() : $rows;
+
+        $ids = [];
+        foreach ($rows as $id => $row) {
+            if ($row['type'] == 'ELEMENT_NODE') {
+                $ids[] = (int) $id;
+            }
+        }
+        sort($ids);
+
+        return $ids;
+    }
+    // }}}
+    // {{{ getXmlElementIds
+    /**
+     * db:id attributes the current document carries; they have to point to
+     * the rows the elements are stored in
+     */
+    protected function getXmlElementIds()
+    {
+        $dom = $this->getCurrentDom();
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('db', 'http://cms.depagecms.net/ns/database');
+
+        $ids = [];
+        foreach ($xpath->query('//@db:id') as $attribute) {
+            $ids[] = (int) $attribute->nodeValue;
+        }
+        sort($ids);
+
+        return $ids;
+    }
+    // }}}
+    // {{{ childIdsOf
+    /**
+     * ids of the children of a node in the order they are stored in the
+     * database
+     */
+    protected function childIdsOf($parent_id)
+    {
+        return array_map(
+            'intval',
+            $this->pdo->query(
+                "SELECT id FROM {$this->xmlTree} WHERE id_doc = 3 AND id_parent = " . (int) $parent_id . " ORDER BY pos ASC"
+            )->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+    // }}}
 
     // {{{ testPatchUnchangedDocument
     /**
@@ -325,6 +380,184 @@ class SavePatchTest extends XmlDbTestCase
         $this->assertSame('dpg:pages', $rows[4]['name']);
         $this->assertSame('pg:page', $rows[5]['name']);
         $this->assertSame('pg:page', $rows[6]['name']);
+    }
+    // }}}
+
+    // {{{ testPatchKeepsNodeIds
+    /**
+     * patching must reuse the rows of the nodes that stayed in the
+     * document, so their database ids (and with them the db:id attributes
+     * the cms works with) do not change; only added nodes may get new ids
+     * and only the id of a removed node disappears
+     */
+    public function testPatchKeepsNodeIds()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $before = $this->getNodeRows();
+        $this->assertSame([4, 5, 6, 7, 8], $this->getElementRowIds($before));
+        $this->assertSame($this->getElementRowIds($before), $this->getXmlElementIds());
+
+        $dom = $this->getCurrentDom();
+
+        $page = $this->findPage($dom, 'P3.2');
+        $page->setAttribute('name', 'P3.2 edited');
+
+        $page = $this->findPage($dom, 'P3.1.2');
+        $page->parentNode->removeChild($page);
+
+        $home = $this->findPage($dom, 'Home3');
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:subpage');
+        $new->setAttribute('name', 'inserted');
+        $home->insertBefore($new, $home->firstChild);
+
+        $this->doc->savePatch($dom);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+
+        $after = $this->getNodeRows();
+
+        // the id of the removed node is gone, the surviving nodes kept
+        // theirs (including the text node of the edited subtree)
+        $this->assertFalse(isset($after[7]), 'the removed node must not exist anymore');
+        $this->assertSame(
+            [4, 5, 6, 8],
+            array_values(array_intersect($this->getElementRowIds($before), $this->getElementRowIds($after)))
+        );
+
+        // the added node is the only one with a new id
+        $newIds = array_diff(array_keys($after), array_keys($before));
+        $this->assertCount(1, $newIds);
+        $this->assertSame('pg:subpage', $after[reset($newIds)]['name']);
+
+        // and the ids still point to the pages they did before
+        $this->assertStringContainsString('P3.2 edited', $after[8]['value']);
+        $this->assertSame($before[6]['value'], $after[6]['value']);
+
+        // and the db:id attributes of the document point to the stored rows
+        $this->assertSame($this->getElementRowIds($after), $this->getXmlElementIds());
+    }
+    // }}}
+    // {{{ testPatchKeepsNodeIdsOnReorder
+    /**
+     * reordering a child list only writes new positions, the nodes
+     * themselves keep their rows and ids
+     */
+    public function testPatchKeepsNodeIdsOnReorder()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $before = $this->getNodeRows();
+        $this->assertSame([6, 8], $this->childIdsOf(5));
+
+        $dom = $this->getCurrentDom();
+        $page = $this->findPage($dom, 'P3.2');
+        $this->assertNotNull($page);
+        $page->parentNode->insertBefore($page, $page->parentNode->firstChild);
+
+        $this->doc->savePatch($dom);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+        $this->assertSame(0, $stats['inserts']);
+        $this->assertSame(0, $stats['deletes']);
+        $this->assertSame(0, $stats['updates']);
+
+        $after = $this->getNodeRows();
+
+        // same nodes, same ids, only the order of the children changed
+        $this->assertSame(array_keys($before), array_keys($after));
+        $this->assertSame([8, 6], $this->childIdsOf(5));
+        $this->assertSame($this->getElementRowIds($before), $this->getElementRowIds($after));
+        $this->assertSame($this->getElementRowIds($after), $this->getXmlElementIds());
+
+        foreach ($after as $id => $row) {
+            $this->assertSame($before[$id]['id_parent'], $row['id_parent'], "node {$id}");
+            $this->assertSame($before[$id]['value'], $row['value'], "node {$id} keeps its content under its id");
+        }
+    }
+    // }}}
+    // {{{ testPatchKeepsNodeIdsOfMovedSubtree
+    /**
+     * moving a subtree to another parent removes the old rows and inserts
+     * the subtree again; the elements have to come back with the ids they
+     * had before, the nodes below the moved node must not be forced to new
+     * ids by the patch
+     */
+    public function testPatchKeepsNodeIdsOfMovedSubtree()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+        $page = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($page);
+        $dom->documentElement->appendChild($page);
+
+        $this->doc->savePatch($dom);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+
+        $after = $this->getNodeRows();
+
+        // the moved page (6) and the page below it (7) kept their ids
+        $this->assertSame([4, 5, 6, 7, 8], $this->getElementRowIds($after));
+        $this->assertStringContainsString('name="P3.1"', $after[6]['value']);
+        $this->assertStringContainsString('name="P3.1.2"', $after[7]['value']);
+        $this->assertSame('4', (string) $after[6]['id_parent']);
+        $this->assertSame('6', (string) $after[7]['id_parent']);
+        $this->assertSame([5, 6], $this->childIdsOf(4));
+        $this->assertSame([8], $this->childIdsOf(5));
+
+        $this->assertSame($this->getElementRowIds($after), $this->getXmlElementIds());
+    }
+    // }}}
+    // {{{ testPatchDoesNotReuseForeignNodeIds
+    /**
+     * an element that carries the db:id of a node of another document must
+     * not take over that row; it gets a new id of its own and the other
+     * document keeps its node
+     */
+    public function testPatchDoesNotReuseForeignNodeIds()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $getOtherRows = function () {
+            return $this->pdo->query(
+                "SELECT id, id_doc, id_parent, pos, name, value FROM {$this->xmlTree} WHERE id_doc = 4 ORDER BY id"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+        };
+        $otherBefore = $getOtherRows();
+
+        $dom = $this->getCurrentDom();
+        $home = $this->findPage($dom, 'Home3');
+
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:subpage');
+        $new->setAttribute('name', 'claims the id of another document');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '10');
+        $home->appendChild($new);
+
+        $this->doc->savePatch($dom);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+        $this->assertSame(1, $stats['inserts']);
+
+        $rows = $this->getNodeRows();
+        $this->assertCount(7, $rows);
+        $this->assertFalse(isset($rows[10]), 'the node of document 4 must not become part of document 3');
+
+        // the element got an id of its own, which is what the stored
+        // document shows
+        $this->assertNotContains(10, $this->getXmlElementIds());
+        $this->assertSame($this->getElementRowIds(), $this->getXmlElementIds());
+
+        $xml = $this->doc->getXml(false);
+        $this->assertStringContainsString('claims the id of another document', $xml);
+
+        // and document 4 was not touched
+        $this->assertSame($otherBefore, $getOtherRows());
     }
     // }}}
 }

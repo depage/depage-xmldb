@@ -41,7 +41,6 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
             $GLOBALS['DB_PASSWD'],
             array(
                 'prefix' => 'xmldb',
-                \PDO::ATTR_PERSISTENT => true,
             )
         );
         $this->conn = $this->createDefaultDBConnection($this->pdo->getPdoObject(), $GLOBALS['DB_DBNAME']);

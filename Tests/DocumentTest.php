@@ -30,6 +30,26 @@ class DocumentTest extends XmlDbTestCase
         $this->namespaces = 'xmlns:db="http://cms.depagecms.net/ns/database" xmlns:dpg="http://www.depagecms.net/ns/depage" xmlns:pg="http://www.depagecms.net/ns/page"';
     }
     // }}}
+    // {{{ getXmlElementIdsOfDocument
+    /**
+     * db:id attributes of the document as it is stored in the database
+     */
+    public function getXmlElementIdsOfDocument()
+    {
+        $dom = $this->generateDomDocument($this->doc->getXml(true));
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('db', 'http://cms.depagecms.net/ns/database');
+
+        $ids = [];
+        foreach ($xpath->query('//@db:id') as $attribute) {
+            $ids[] = (int) $attribute->nodeValue;
+        }
+        sort($ids);
+
+        return $ids;
+    }
+    // }}}
     // {{{ getNodeRowById
     public function getNodeRowById($id)
     {
@@ -294,6 +314,133 @@ class DocumentTest extends XmlDbTestCase
         $this->doc->save($xml);
 
         $this->assertXmlStringEqualsXmlStringIgnoreLastchange($xmlStr, $this->doc->getXml(false));
+    }
+    // }}}
+
+    // {{{ testSaveKeepsNodeIds
+    /**
+     * saving a document that carries the db:id attributes it got from
+     * getXml() has to write the elements back to the rows these ids point
+     * to; ids are handed out once and the cms stores references to them,
+     * so a plain save must not move the content to new rows
+     */
+    public function testSaveKeepsNodeIds()
+    {
+        $dom = $this->generateDomDocument($this->doc->getXml(true));
+
+        $this->doc->save($dom);
+
+        $rows = $this->pdo->query(
+            'SELECT id, id_doc, id_parent, name, type FROM ' . $this->xmlTree . ' WHERE id_doc = 3 ORDER BY id'
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        $elementIds = [];
+        foreach ($rows as $row) {
+            if ($row['type'] == 'ELEMENT_NODE') {
+                $elementIds[] = (int) $row['id'];
+            }
+        }
+
+        // all elements are still stored under the id they had before
+        $this->assertSame([4, 5, 6, 7, 8], $elementIds);
+        $this->assertCount(6, $rows);
+        $this->assertEquals(4, $this->doc->getDocInfo()->rootid);
+
+        // and the ids still point to the same pages
+        $this->assertStringContainsString('name="P3.2"', $this->getNodeRowById(8)['value']);
+        $this->assertStringContainsString('name="P3.1"', $this->getNodeRowById(6)['value']);
+
+        // and the document points its db:id attributes at these rows
+        $this->assertSame($elementIds, $this->getXmlElementIdsOfDocument());
+    }
+    // }}}
+    // {{{ testSaveKeepsNodeIdsOfChangedDocument
+    /**
+     * changing the content and the order of the nodes of a document must
+     * not change the ids of the nodes that are still part of it, only
+     * added nodes may get ids of their own
+     */
+    public function testSaveKeepsNodeIdsOfChangedDocument()
+    {
+        $getElementIds = function () {
+            $ids = [];
+            foreach ($this->pdo->query('SELECT id, type FROM ' . $this->xmlTree . ' WHERE id_doc = 3') as $row) {
+                if ($row['type'] == 'ELEMENT_NODE') {
+                    $ids[] = (int) $row['id'];
+                }
+            }
+            sort($ids);
+
+            return $ids;
+        };
+
+        $before = $getElementIds();
+        $this->assertSame([4, 5, 6, 7, 8], $before);
+
+        $dom = $this->generateDomDocument($this->doc->getXml(true));
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('pg', 'http://www.depagecms.net/ns/page');
+
+        $page = $xpath->query('//pg:page[@name="P3.2"]')->item(0);
+        $page->setAttribute('name', 'P3.2 edited');
+        $page->parentNode->insertBefore($page, $page->parentNode->firstChild);
+
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttribute('name', 'newPage');
+        $dom->documentElement->appendChild($new);
+
+        $this->doc->save($dom);
+
+        $after = $getElementIds();
+
+        // the pages that stayed in the document kept their ids, the added
+        // one is the only element with an id the document did not have
+        $this->assertSame($before, array_values(array_intersect($before, $after)));
+        $this->assertCount(count($before) + 1, $after);
+        $this->assertSame($after, $this->getXmlElementIdsOfDocument());
+    }
+    // }}}
+    // {{{ testSaveDoesNotTakeOverNodeIdsOfOtherDocuments
+    /**
+     * an element that carries the db:id of a node of another document must
+     * not be saved over that node; it gets an id of its own, which is also
+     * corrected in the dom the caller passed in
+     */
+    public function testSaveDoesNotTakeOverNodeIdsOfOtherDocuments()
+    {
+        $dom = $this->generateDomDocument($this->doc->getXml(true));
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('pg', 'http://www.depagecms.net/ns/page');
+
+        $foreignId = (int) $this->pdo->query('SELECT id FROM ' . $this->xmlTree . ' WHERE id_doc = 4 LIMIT 1')->fetchColumn();
+        $this->assertGreaterThan(0, $foreignId);
+
+        $home = $xpath->query('//pg:page[@name="Home3"]')->item(0);
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttribute('name', 'thief');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', (string) $foreignId);
+        $home->appendChild($new);
+
+        $this->doc->save($dom);
+
+        // the node of the other document still belongs to that document
+        $this->assertEquals(4, $this->getNodeRowById($foreignId)['id_doc']);
+
+        $elementIds = [];
+        foreach ($this->pdo->query('SELECT id, type FROM ' . $this->xmlTree . ' WHERE id_doc = 3') as $row) {
+            if ($row['type'] == 'ELEMENT_NODE') {
+                $elementIds[] = (int) $row['id'];
+            }
+        }
+        sort($elementIds);
+
+        // the id was not taken over, the element got one of its own, both
+        // in the database and in the dom the caller holds
+        $this->assertNotContains($foreignId, $elementIds);
+        $this->assertContains((int) $new->getAttributeNS('http://cms.depagecms.net/ns/database', 'id'), $elementIds);
+        $this->assertSame($elementIds, $this->getXmlElementIdsOfDocument());
     }
     // }}}
 

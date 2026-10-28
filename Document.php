@@ -39,9 +39,11 @@ class Document
     public const PATCH_MAX_CHANGE_RATIO = 0.4;
 
     /**
-     * maximum number of nodes written with a single insert statement by
-     * saveNodesByType(); the auto incremented ids of such a batch are
-     * read back with one select over the unique sibling index
+     * maximum number of nodes written with a single statement;
+     * saveNodesByType() inserts nodes in batches of this size (the auto
+     * incremented ids of such a batch are read back with one select over
+     * the unique sibling index), refreshSubhashes() and
+     * rebalancePositions() write their rows in batches of this size
      */
     public const SAVE_BATCH_SIZE = 200;
     // }}}
@@ -514,19 +516,12 @@ class Document
             }
         }
 
-        $id_list = [];
-        $case = '';
-        foreach ($ids as $index => $id) {
-            $id_list[] = $id;
-            $case .= ' WHEN ' . $id . ' THEN ' . (($index + 1) * self::POS_GAP);
-        }
-
         // the unique sibling index is checked row by row, so the positions
         // have to be moved out of the way first: adding a big offset in
         // descending order cannot collide with a sibling that has not
         // been updated yet, and the offset is big enough to keep the
         // scratch positions clear of the final positions that are
-        // assigned in the second update below
+        // assigned in the update below
         $this->pdo->exec(
             "UPDATE {$this->table_xml}
             SET pos = pos + 1125899906842624
@@ -534,13 +529,14 @@ class Document
             ORDER BY pos DESC"
         );
 
-        // ids come from the database and positions are calculated from
-        // POS_GAP, interpolating the integers cannot inject anything
-        $this->pdo->exec(
-            "UPDATE {$this->table_xml}
-            SET pos = CASE id{$case} END
-            WHERE id_doc = " . (int) $this->doc_id . " AND id IN (" . implode(',', $id_list) . ")"
-        );
+        // every sibling gets a position of its own, so writing the final
+        // positions in batches cannot collide with the unique sibling
+        // index either
+        $positions = new Helpers\CaseUpdate($this->pdo, $this->table_xml, self::SAVE_BATCH_SIZE);
+        foreach ($ids as $index => $id) {
+            $positions->add($id, ($index + 1) * self::POS_GAP);
+        }
+        $positions->write('pos', ['id_doc' => $this->doc_id]);
     }
     // }}}
 
@@ -2374,87 +2370,7 @@ class Document
     // {{{ saveNodesByType
     protected function saveNodesByType(&$node_array, $xml_element_node)
     {
-        $batch = [];
-        $batch_null = [];
-        $batch_parents = [];
-        $batch_values = [];
-        $batch_params = [];
-
-        $flush = function () use (
-            &$node_array,
-            &$batch,
-            &$batch_null,
-            &$batch_parents,
-            &$batch_values,
-            &$batch_params
-        ) {
-            if (count($batch) == 0) {
-                return;
-            }
-
-            $query = $this->pdo->prepare(
-                "INSERT {$this->table_xml}
-                    (id, id_parent, id_doc, pos, name, value, type)
-                VALUES
-                    " . implode(", ", $batch_values) . "
-                ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
-            );
-            $query->execute($batch_params);
-
-            if (count($batch_null) > 0) {
-                // the nodes of the batch without a preferred id got one
-                // from the auto increment (which can not be trusted to
-                // hand out consecutive ids in a multi row insert); the
-                // unique sibling index identifies them again, the
-                // parents of a batch only have children from this save
-                $parents = [];
-                foreach (array_keys($batch_parents) as $parent_id) {
-                    $parents[] = (int) $parent_id;
-                }
-
-                $ids_query = $this->pdo->prepare(
-                    "SELECT id, id_parent, pos
-                    FROM {$this->table_xml}
-                    WHERE id_doc = :doc_id AND id_parent IN (" . implode(", ", $parents) . ")"
-                );
-                $ids_query->execute([
-                    'doc_id' => $this->doc_id,
-                ]);
-
-                $ids_by_key = [];
-                foreach ($ids_query->fetchAll(\PDO::FETCH_OBJ) as $row) {
-                    $ids_by_key[$row->id_parent . ':' . $row->pos] = (int) $row->id;
-                }
-                $ids_query->closeCursor();
-
-                foreach (array_keys($batch_null) as $index) {
-                    $parent_id = (int) $node_array[$node_array[$index]['parent_index']]['id'];
-                    $pos = ($node_array[$index]['pos'] + 1) * self::POS_GAP;
-
-                    if (!isset($ids_by_key[$parent_id . ':' . $pos])) {
-                        throw new Exceptions\XmlDbException("Inserted node could not be found again after batch insert.");
-                    }
-
-                    $node_array[$index]['id'] = $ids_by_key[$parent_id . ':' . $pos];
-                }
-            }
-
-            foreach ($batch as $index) {
-                if ($node_array[$index]['node']->nodeType == XML_ELEMENT_NODE) {
-                    $node_array[$index]['node']->setAttributeNS(
-                        $this->db_ns->uri,
-                        $this->db_ns->ns . ':' . $this->id_attribute,
-                        $node_array[$index]['id']
-                    );
-                }
-            }
-
-            $batch = [];
-            $batch_null = [];
-            $batch_parents = [];
-            $batch_values = [];
-            $batch_params = [];
-        };
+        $batch = new Helpers\NodeBatch($this->pdo, $this->table_xml, (int) $this->doc_id, self::SAVE_BATCH_SIZE);
 
         // writing the tree level by level makes sure that every node's
         // parent has been saved (and its auto increment id read back)
@@ -2485,38 +2401,48 @@ class Document
                 [$type, $name, $value] = $this->getNodeTypeData($node['node']);
                 $value = \Normalizer::normalize($value);
 
-                $batch[] = $i;
+                $batch->add($i, $node['id'], $parent_id, ($node['pos'] + 1) * self::POS_GAP, $name, $value, $type);
 
-                if (is_null($node['id'])) {
-                    $batch_null[$i] = true;
-                }
-                $batch_parents[(int) $parent_id] = true;
-
-                $batch_values[] = '(?, ?, ?, ?, ?, ?, ?)';
-                array_push(
-                    $batch_params,
-                    $node['id'],
-                    $parent_id,
-                    $this->doc_id,
-                    ($node['pos'] + 1) * self::POS_GAP,
-                    $name,
-                    $value,
-                    $type
-                );
-
-                if (count($batch) >= self::SAVE_BATCH_SIZE) {
-                    $flush();
+                if ($batch->isFull()) {
+                    $this->setResolvedNodeIds($batch->write(), $node_array);
                 }
             }
 
             // the auto increment ids of this level have to be known
             // before its children can reference them
-            $flush();
+            $this->setResolvedNodeIds($batch->write(), $node_array);
         }
 
-        $flush();
+        $this->setResolvedNodeIds($batch->write(), $node_array);
 
         $this->insertNodeQuery = null;
+    }
+    // }}}
+    // {{{ setResolvedNodeIds
+    /**
+     * stores the database ids a batch insert handed out for its nodes in
+     * the list of nodes to save (the parents of the following tree level
+     * and the caller of the save work with them) and adds them as db:id
+     * attribute to the nodes of the saved dom
+     *
+     * @param $resolved_ids (array) database ids keyed by the index of the
+     *        node in $node_array
+     * @param $node_array (array) nodes to save, as built by
+     *             getNodeArrayForSaving
+     */
+    protected function setResolvedNodeIds($resolved_ids, &$node_array)
+    {
+        foreach ($resolved_ids as $index => $id) {
+            $node_array[$index]['id'] = $id;
+
+            if ($node_array[$index]['node']->nodeType == XML_ELEMENT_NODE) {
+                $node_array[$index]['node']->setAttributeNS(
+                    $this->db_ns->uri,
+                    $this->db_ns->ns . ':' . $this->id_attribute,
+                    $id
+                );
+            }
+        }
     }
     // }}}
     // {{{ getNodeArrayForSaving
@@ -2781,13 +2707,18 @@ class Document
         // deepest level first, so a node is only reached after all of its
         // children contributed their hash
         $child_hashes = [];
-        $hashes = [];
+
+        // the recalculated hashes are only written after the cursor is
+        // closed (no statement may run on the connection while the
+        // unbuffered result is open), so they are collected in the update
+        // buffer first
+        $subhashes = new Helpers\CaseUpdate($this->pdo, $this->table_xml, self::SAVE_BATCH_SIZE);
 
         while ($row = $query->fetchObject()) {
             $hash = $this->getNodeHash($row->type, $row->name, $row->value, $child_hashes[$row->id] ?? []);
 
             if ($row->subhash !== $hash) {
-                $hashes[$row->id] = $hash;
+                $subhashes->add($row->id, $hash);
             }
 
             if ($row->id_parent !== null) {
@@ -2798,26 +2729,9 @@ class Document
         // no statements may run while the unbuffered result is open
         $query->closeCursor();
 
-        // the hashes are written in batches; subhash takes part in no
-        // unique index, so a single case update cannot collide
-        $hashes = array_chunk($hashes, self::SAVE_BATCH_SIZE, true);
-        foreach ($hashes as $chunk) {
-            $case = '';
-            $ids = [];
-            foreach ($chunk as $id => $hash) {
-                // ids come from the database, hashes are sha256 hex
-                // strings, interpolating them cannot inject anything
-                $case .= ' WHEN ' . (int) $id . " THEN '" . $hash . "'";
-                $ids[] = (int) $id;
-            }
-
-            $this->pdo->exec(
-                "UPDATE {$this->table_xml}
-                SET subhash = CASE id {$case} END
-                WHERE id_doc = " . (int) $this->doc_id . "
-                    AND id IN (" . implode(", ", $ids) . ")"
-            );
-        }
+        // subhash takes part in no unique index, so the case updates
+        // cannot collide
+        $subhashes->write('subhash', ['id_doc' => $this->doc_id]);
     }
     // }}}
     // {{{ getNodeHash

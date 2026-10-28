@@ -32,6 +32,14 @@ class XmlDbTestCase extends \PHPUnit\Framework\TestCase
             $this->pdo->rollBack();
         }
 
+        // the dom documents a test worked on keep their php wrappers in a
+        // reference cycle, so freeing them needs the cycle collector. Until
+        // that happens the \Depage\Db\Pdo of the test stays alive and so
+        // does its mysql connection; in a long run that piles up one
+        // connection per test and the server answers
+        // "SQLSTATE[HY000] [1040] Too many connections"
+        gc_collect_cycles();
+
         parent::tearDown();
     }
     // }}}
@@ -76,7 +84,6 @@ class XmlDbTestCase extends \PHPUnit\Framework\TestCase
             $GLOBALS['DB_PASSWD'],
             [
                 'prefix' => 'xmldb',
-                \PDO::ATTR_PERSISTENT => true,
             ]
         );
         $pdo->exec('SET FOREIGN_KEY_CHECKS=0;');

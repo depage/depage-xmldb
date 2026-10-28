@@ -23,7 +23,6 @@ class SchemaTest extends \PHPUnit\Framework\TestCase
             $GLOBALS['DB_PASSWD'],
             [
                 'prefix' => 'xmldb',
-                \PDO::ATTR_PERSISTENT => true,
             ]
         );
         return $this->pdo;
