@@ -1,12 +1,13 @@
 {
     "name": "depage/xmldb",
-    "description": "xmldb",
+    "description": "XML documents in a relational database",
     "type": "library",
     "keywords": [
         "xml",
         "database",
         "db",
-        "pdo"
+        "pdo",
+        "xpath"
     ],
     "config": {
         "preferred-install": "dist",
@@ -15,7 +16,7 @@
         }
     },
     "require": {
-        "php": " >= 8.0",
+        "php": " >= 8.3",
         "depage/cache": "*@dev",
         "depage/db": "*@dev",
         "depage/xml": "*@dev"

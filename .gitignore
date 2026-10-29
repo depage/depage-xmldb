@@ -5,3 +5,7 @@
 /Tests/Report/
 .DS_Store
 _vimsession.vis
+
+# doxygen theme and generated documentation
+/Docs/depage-docu/
+/Docs/html/

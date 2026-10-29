@@ -5,6 +5,8 @@
     <file>.</file>
     <exclude-pattern>vendor/*</exclude-pattern>
     <exclude-pattern type="relative">^\.php-cs-fixer\.cache$</exclude-pattern>
+    <!-- the doxygen theme is cloned into the repository by "make doc" -->
+    <exclude-pattern>Docs/depage-docu/*</exclude-pattern>
 
     <arg name="extensions" value="php"/>
     <arg name="basepath" value="."/>
@@ -12,8 +14,8 @@
 
     <rule ref="PHPCompatibility">
         <properties>
-            <!-- code must run on all PHP versions from the composer.json floor (8.0) upwards -->
-            <property name="testVersion" value="8.0-"/>
+            <!-- code must run on all PHP versions from the composer.json floor (8.3) upwards -->
+            <property name="testVersion" value="8.3-"/>
         </properties>
     </rule>
 </ruleset>

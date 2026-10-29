@@ -21,7 +21,8 @@ return (new Config())
             // 💡 additional files, eg bin entry file
             // ->append([__DIR__.'/bin-entry-file'])
             // 💡 folders to exclude, if any
-            // ->exclude([/* ... */])
+            // the doxygen theme is cloned into the repository by "make doc"
+            ->exclude(['Docs/depage-docu'])
             // 💡 path patterns to exclude, if any
             // ->notPath([/* ... */])
             // 💡 extra configs

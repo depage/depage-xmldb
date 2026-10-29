@@ -1,0 +1,38 @@
+@INCLUDE = Docs/depage-docu/Doxyfile
+
+# The PROJECT_NAME tag is a single word (or a sequence of words surrounded by
+# double-quotes, unless you are using Doxywizard) that should identify the
+# project for which the documentation is generated. This name is used in the
+# title of most generated pages and in a few other places.
+# The default value is: My Project.
+
+PROJECT_NAME           = "depage-xmldb"
+
+# Using the PROJECT_BRIEF tag one can provide an optional one line description
+# for a project that appears at the top of each page and should give viewer a
+# quick idea about the purpose of the project. Keep the description short.
+
+PROJECT_BRIEF          = "XML documents in a relational database"
+
+# The OUTPUT_DIRECTORY tag is used to specify the (relative or absolute) path
+# into which the generated documentation will be written. If a relative path is
+# entered, it will be relative to the location where doxygen was started. If
+# left blank the current directory will be used.
+
+OUTPUT_DIRECTORY       = .
+
+# The EXAMPLE_PATH tag can be used to specify one or more files or directories
+# that contain example code fragments that are included (see the \include
+# command).
+
+EXAMPLE_PATH           = Docs/examples/
+
+# The SITEMAP_URL tag is used to specify the full URL of the place where the
+# generated documentation will be placed on the server by the user during the
+# deployment of the documentation. The generated sitemap is called sitemap.xml
+# and placed on the directory specified by HTML_OUTPUT. In case no SITEMAP_URL
+# is specified no sitemap is generated. For information about the sitemap
+# protocol see https://www.sitemaps.org
+# This tag requires that the tag GENERATE_HTML is set to YES.
+
+SITEMAP_URL            = https://docs.depage.net/depage-xmldb/Docs/html/

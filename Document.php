@@ -238,6 +238,12 @@ class Document implements Interfaces\DocumentWriterHost
     }
     // }}}
     // {{{ getNamespacesAndEntities
+    /**
+     * gets the namespaces and the entities of the document
+     *
+     * @return object|false object with the properties "namespaces" and
+     *         "entities" or false if the document does not exist
+     */
     public function getNamespacesAndEntities()
     {
         $query = $this->pdo->prepare(
@@ -951,6 +957,16 @@ class Document implements Interfaces\DocumentWriterHost
     }
     // }}}
     // {{{ saveNode
+    /**
+     * saves the subtree of a node; the subtree is deleted and written again,
+     * the parent and the position of the node are kept
+     *
+     * @see saveNodePatch() for incrementally saving a subtree
+     *
+     * @param $node (DomNode) subtree to save
+     *
+     * @returns $id (int) id of the root node of the subtree
+     */
     public function saveNode($node)
     {
         return $this->inTransaction(
@@ -1119,6 +1135,16 @@ class Document implements Interfaces\DocumentWriterHost
     // }}}
 
     // {{{ moveNode
+    /**
+     * moves a node to a position in the child list of another node
+     *
+     * @param    $node_id (int) db-id of node
+     * @param    $target_id (int) db-id of target (parent) node
+     * @param    $target_pos (int) index to move the node to
+     *
+     * @return   (int|false) id of the old parent node, false if the node
+     *         was not moved
+     */
     public function moveNode($node_id, $target_id, $target_pos)
     {
         return $this->moveNodeChecked($node_id, $target_id, fn() => $target_pos);
@@ -1207,6 +1233,15 @@ class Document implements Interfaces\DocumentWriterHost
     // }}}
 
     // {{{ copyNode
+    /**
+     * copies a node to a position in the child list of another node
+     *
+     * @param    $node_id (int) db-id of node
+     * @param    $target_id (int) db-id of target (parent) node
+     * @param    $target_pos (int) index to copy the node to
+     *
+     * @return   (int|false) id of the copy, false if the node was not copied
+     */
     public function copyNode($node_id, $target_id, $target_pos)
     {
         return $this->copyNodeChecked($node_id, $target_id, fn() => $target_pos);
@@ -1605,18 +1640,44 @@ class Document implements Interfaces\DocumentWriterHost
     }
     // }}}
     // {{{ beginTransactionAltering
+    /**
+     * opens a transaction that changes the document
+     *
+     * the outermost level starts a database transaction, the inner levels
+     * use savepoints
+     *
+     * @return int the level of the transaction
+     */
     public function beginTransactionAltering()
     {
         return $this->xmlDb->beginTransactionAltering();
     }
     // }}}
     // {{{ beginTransactionNonAltering
+    /**
+     * opens a transaction that only reads the document
+     *
+     * the outermost level starts a database transaction, the inner levels
+     * use savepoints
+     *
+     * @return int the level of the transaction
+     */
     public function beginTransactionNonAltering()
     {
         return $this->xmlDb->beginTransactionNonAltering();
     }
     // }}}
     // {{{ endTransaction
+    /**
+     * closes the innermost open transaction level
+     *
+     * the outermost level commits the database transaction, an inner level
+     * releases its savepoint; the hashes of the document are recalculated
+     * before the outermost level is committed
+     *
+     * @return bool true if the outermost transaction has changed the
+     *         document
+     */
     public function endTransaction()
     {
         if ($this->subhashesDirty && $this->xmlDb->transactions == 1) {
@@ -1638,6 +1699,13 @@ class Document implements Interfaces\DocumentWriterHost
     }
     // }}}
     // {{{ rollBackTransaction
+    /**
+     * rolls back to the start of the innermost open transaction level,
+     * keeping the outer transaction levels (if any) intact
+     *
+     * @return bool true if a transaction level was rolled back, false if no
+     *         transaction was open
+     */
     public function rollBackTransaction()
     {
         // the document may have changed before the rollback, reload the

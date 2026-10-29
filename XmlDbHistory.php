@@ -31,6 +31,14 @@ class XmlDbHistory implements Interfaces\XmlGetter
     // }}}
 
     // {{{ constructor
+    /**
+     * creates an instance of the read only view on the published versions
+     *
+     * @param $table_prefix (string) prefix of the tables of the library
+     * @param $pdo (Depage\Db\Pdo) database connection
+     * @param $cache (Depage\Cache\Cache) cache instance
+     * @param $options (array) options of the instance
+     */
     public function __construct($table_prefix, $pdo, $cache, $options = [])
     {
         $this->pdo = $pdo;
@@ -46,6 +54,15 @@ class XmlDbHistory implements Interfaces\XmlGetter
     // }}}
 
     // {{{ docExists
+    /**
+     * gets the doc-id of a xml-document by name or id and checks if the
+     * document has at least one version in the history
+     *
+     * @param $doc_id_or_name (mixed) id or name of the document
+     *
+     * @return int|false id of the document or false when the document does
+     *         not exist or has no version
+     */
     public function docExists($doc_id_or_name)
     {
         $result = false;
@@ -72,10 +89,12 @@ class XmlDbHistory implements Interfaces\XmlGetter
     // }}}
     // {{{ getDocInfo()
     /**
-     * @brief getDocInfo
+     * gets the info of a document
      *
-     * @param mixed $
-     * @return void
+     * @param $doc_id_or_name (mixed) id or name of the document
+     *
+     * @return object|false the info of the document or false if it does not
+     *         exist
      **/
     public function getDocInfo($doc_id_or_name)
     {
@@ -83,6 +102,17 @@ class XmlDbHistory implements Interfaces\XmlGetter
     }
     // }}}
     // {{{ getDocXml
+    /**
+     * gets a published version of a document as a DOMDocument
+     *
+     * if the property "timestamp" is set, the version of that timestamp is
+     * returned, otherwise the version that was published last
+     *
+     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $add_id_attribute (bool) whether to add the db:id attributes
+     *
+     * @return bool|\DOMDocument
+     */
     public function getDocXml($doc_id_or_name, $add_id_attribute = true)
     {
         $xml = false;
@@ -102,6 +132,16 @@ class XmlDbHistory implements Interfaces\XmlGetter
     }
     // }}}
     // {{{ getDocXmlXpath
+    /**
+     * gets the first node of a published version of a document that matches
+     * an xpath query
+     *
+     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $xpath (string) xpath to target node
+     * @param $add_id_attribute (bool) whether to add the db:id attributes
+     *
+     * @return bool|\DOMDocument
+     */
     public function getDocXmlXpath($doc_id_or_name, $xpath, $add_id_attribute = true)
     {
         $xml = false;

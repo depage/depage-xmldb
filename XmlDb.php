@@ -34,6 +34,15 @@ class XmlDb implements Interfaces\XmlGetter
     public $options;
     // }}}
     // {{{ constructor
+    /**
+     * creates an instance of the xmlDb
+     *
+     * @param $table_prefix (string) prefix of the tables of the library
+     * @param $pdo (Depage\Db\Pdo) database connection
+     * @param $cache (Depage\Cache\Cache) cache instance
+     * @param $options (array) options of the instance, the option "userId"
+     *        is used as the id of the user that changes the documents
+     */
     public function __construct($table_prefix, $pdo, $cache, $options = [])
     {
         $this->pdo = $pdo;
@@ -121,6 +130,10 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * gets available documents in database
      *
+     * @param $name (string) optional name of the documents to get
+     * @param $type (string) optional class name of the doctype handler of
+     *        the documents to get
+     *
      * @return    $docs (array) the key is the name of the document, the value is the document db-id.
      */
     public function getDocuments($name = "", $type = "")
@@ -168,7 +181,7 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * Get xmlDb\document
      *
-     * @param $doc_id_or_name
+     * @param $doc_id_or_name (mixed) id or name of the document
      * @return bool|document
      */
     public function getDoc($doc_id_or_name)
@@ -186,7 +199,7 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * Get xmlDb\document
      *
-     * @param $nodeId
+     * @param $nodeId (int) db-id of a node of the document
      * @return bool|document
      */
     public function getDocByNodeId($nodeId)
@@ -230,9 +243,11 @@ class XmlDb implements Interfaces\XmlGetter
 
     // {{{ getDocXml
     /**
-     * @param $doc_id_or_name
-     * @param bool $add_id_attribute
-     * @return bool
+     * gets a document as a DOMDocument
+     *
+     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $add_id_attribute (bool) whether to add the db:id attributes
+     * @return bool|\DOMDocument
      */
     public function getDocXml($doc_id_or_name, $add_id_attribute = true)
     {
@@ -248,9 +263,12 @@ class XmlDb implements Interfaces\XmlGetter
     // }}}
     // {{{ getDocXmlXpath
     /**
-     * @param $doc_id_or_name
-     * @param bool $add_id_attribute
-     * @return bool
+     * gets the first node of a document that matches an xpath query
+     *
+     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $xpath (string) xpath to target node
+     * @param $add_id_attribute (bool) whether to add the db:id attributes
+     * @return bool|\DOMDocument
      */
     public function getDocXmlXpath($doc_id_or_name, $xpath, $add_id_attribute = true)
     {
@@ -658,6 +676,14 @@ class XmlDb implements Interfaces\XmlGetter
     // }}}
 
     // {{{ beginTransactionAltering
+    /**
+     * opens a transaction that changes the documents
+     *
+     * the outermost level starts a database transaction, the inner levels
+     * use savepoints
+     *
+     * @return int the level of the transaction
+     */
     public function beginTransactionAltering()
     {
         $this->alteringTransaction = true;
@@ -666,6 +692,14 @@ class XmlDb implements Interfaces\XmlGetter
     }
     // }}}
     // {{{ beginTransactionNonAltering
+    /**
+     * opens a transaction that only reads the documents
+     *
+     * the outermost level starts a database transaction, the inner levels
+     * use savepoints
+     *
+     * @return int the level of the transaction
+     */
     public function beginTransactionNonAltering()
     {
         if ($this->transactions == 0) {
@@ -679,6 +713,15 @@ class XmlDb implements Interfaces\XmlGetter
     }
     // }}}
     // {{{ endTransaction
+    /**
+     * closes the innermost open transaction level
+     *
+     * the outermost level commits the database transaction, an inner level
+     * releases its savepoint
+     *
+     * @return bool true if the outermost transaction has changed the
+     *         documents
+     */
     public function endTransaction()
     {
         $altered = false;
