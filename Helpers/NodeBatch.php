@@ -53,13 +53,13 @@ class NodeBatch
      * @param $table (string) name of the xmltree table; a table name can
      *        not be bound as a parameter, so it is checked to be a plain
      *        identifier
-     * @param $doc_id (int) document the nodes belong to
+     * @param $docId (int) document the nodes belong to
      * @param $size (int) number of nodes written with one statement
      */
     public function __construct(
         $pdo,
         protected string $table,
-        protected int $doc_id,
+        protected int $docId,
         protected int $size = self::DEFAULT_SIZE
     ) {
         $this->pdo = $pdo;
@@ -94,17 +94,17 @@ class NodeBatch
      *        result of write() is keyed by it
      * @param $id (int|null) preferred database id, null to take the one
      *        the auto increment hands out
-     * @param $parent_id (int) database id of the parent node
+     * @param $parentId (int) database id of the parent node
      * @param $pos (int) position in the child list of the parent node
      * @param $name (string|null) node name as it is stored
      * @param $value (string) node value as it is stored
      * @param $type (string) node type as it is stored
      */
-    public function add($key, $id, $parent_id, $pos, $name, $value, $type): void
+    public function add($key, $id, $parentId, $pos, $name, $value, $type): void
     {
         $this->entries[$key] = [
             'id' => $id,
-            'parent_id' => $parent_id,
+            'parent_id' => $parentId,
             'pos' => $pos,
             'name' => $name,
             'value' => $value,
@@ -162,7 +162,7 @@ class NodeBatch
                 $params,
                 $entry['id'],
                 $entry['parent_id'],
-                $this->doc_id,
+                $this->docId,
                 $entry['pos'],
                 $entry['name'],
                 $entry['value'],
@@ -223,7 +223,7 @@ class NodeBatch
                 AND pos IN (" . implode(", ", array_fill(0, count($positions), '?')) . ")"
         );
         $query->execute(array_merge(
-            [$this->doc_id],
+            [$this->docId],
             $parents,
             $positions
         ));

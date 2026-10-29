@@ -20,32 +20,32 @@ class DoctypeHandlerTransactionTestClass extends DoctypeHandlerTestClass
     }
     // }}}
     // {{{ onCopyNode
-    public function onCopyNode($node_id, $copy_id)
+    public function onCopyNode($nodeId, $copyId)
     {
         $this->transactionTest('onCopyNode');
         $this->onCopyNode++;
 
-        return parent::onCopyNode($node_id, $copy_id);
+        return parent::onCopyNode($nodeId, $copyId);
     }
     // }}}
     // {{{ onMoveNode
-    public function onMoveNode($node_id, $moved_id)
+    public function onMoveNode($nodeId, $movedId)
     {
         $this->transactionTest('onMoveNode');
         $this->onMoveNode++;
 
-        return parent::onMoveNode($node_id, $moved_id);
+        return parent::onMoveNode($nodeId, $movedId);
     }
     // }}}
     // {{{ onDeleteNode
-    public function onDeleteNode($node_id, $parent_id)
+    public function onDeleteNode($nodeId, $parentId)
     {
         if (!$this->document->isInTransaction()) {
             throw new \Exception("onDeleteNode triggered outside transaction.");
         }
         $this->onDeleteNode++;
 
-        return parent::onDeleteNode($node_id, $parent_id);
+        return parent::onDeleteNode($nodeId, $parentId);
     }
     // }}}
     // {{{ onDocumentChange

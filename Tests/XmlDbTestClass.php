@@ -4,7 +4,7 @@ namespace Depage\XmlDb\Tests;
 
 class XmlDbTestClass extends \Depage\XmlDb\XmlDb
 {
-    public $doc_ids;
+    public $docIds;
     public $fallbackCall = false;
     public $transactions = 0;
 

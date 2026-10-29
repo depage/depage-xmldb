@@ -62,15 +62,15 @@ class Positions
     /**
      * @param $pdo database connection to read and write the positions with
      * @param $table (string) name of the xmltree table
-     * @param $doc_id (int) document the nodes belong to
-     * @param $batch_size (int) number of rows rebalance() writes with one
+     * @param $docId (int) document the nodes belong to
+     * @param $batchSize (int) number of rows rebalance() writes with one
      *        statement
      */
     public function __construct(
         $pdo,
         protected string $table,
-        protected $doc_id,
-        protected int $batch_size = CaseUpdate::DEFAULT_SIZE
+        protected $docId,
+        protected int $batchSize = CaseUpdate::DEFAULT_SIZE
     ) {
         $this->pdo = $pdo;
     }
@@ -80,11 +80,11 @@ class Positions
     /**
      * gets id and pos of all children of a parent node in document order
      *
-     * @param $parent_id (int) db-id of parent node
+     * @param $parentId (int) db-id of parent node
      *
      * @return (array) list of objects with id and pos
      */
-    public function siblings($parent_id): array
+    public function siblings($parentId): array
     {
         $query = $this->pdo->prepare(
             "SELECT xml.id, xml.pos
@@ -93,8 +93,8 @@ class Positions
             ORDER BY xml.pos ASC, xml.id ASC",
         );
         $query->execute([
-            'parent_id' => $parent_id,
-            'doc_id' => $this->doc_id,
+            'parent_id' => $parentId,
+            'doc_id' => $this->docId,
         ]);
 
         return $query->fetchAll(\PDO::FETCH_OBJ);
@@ -107,18 +107,18 @@ class Positions
      * them; a node that is moved inside its own parent is not part of the
      * child list the targetIndex counts
      *
-     * @param $parent_id (int) db-id of parent node
-     * @param $exclude_id (int) db-id of the child to leave out
+     * @param $parentId (int) db-id of parent node
+     * @param $excludeId (int) db-id of the child to leave out
      *
      * @return (array) list of objects with id and pos
      */
-    private function siblingsWithout($parent_id, $exclude_id = null): array
+    private function siblingsWithout($parentId, $excludeId = null): array
     {
-        $siblings = $this->siblings($parent_id);
+        $siblings = $this->siblings($parentId);
 
-        if (!is_null($exclude_id)) {
+        if (!is_null($excludeId)) {
             foreach ($siblings as $i => $sibling) {
-                if ($sibling->id == $exclude_id) {
+                if ($sibling->id == $excludeId) {
                     unset($siblings[$i]);
                     $siblings = array_values($siblings);
                     break;
@@ -141,17 +141,17 @@ class Positions
      * clamped to it.
      *
      * @param $targetIndex (int|null) index a caller wants a node at
-     * @param $num_siblings (int) number of children the index counts
+     * @param $numSiblings (int) number of children the index counts
      *
      * @return (int) index a node is inserted at
      */
-    private function clampIndex($targetIndex, int $num_siblings): int
+    private function clampIndex($targetIndex, int $numSiblings): int
     {
         if (!is_numeric($targetIndex) || (int) $targetIndex < 0) {
-            return $num_siblings;
+            return $numSiblings;
         }
 
-        return min((int) $targetIndex, $num_siblings);
+        return min((int) $targetIndex, $numSiblings);
     }
     // }}}
 
@@ -162,18 +162,18 @@ class Positions
      * where the target indexes of the public api (-1 appends, the other
      * values are the 0-based index the node gets) are resolved
      *
-     * @param $parent_id (int) db-id of parent node
+     * @param $parentId (int) db-id of parent node
      * @param $targetIndex (int|null) index a caller wants the node at
-     * @param $exclude_id (int) db-id of a child that does not count into
+     * @param $excludeId (int) db-id of a child that does not count into
      *        the index (a node that is moved inside its own parent)
      *
      * @return (int) index the node is inserted at
      */
-    public function normalizeIndex($parent_id, $targetIndex, $exclude_id = null)
+    public function normalizeIndex($parentId, $targetIndex, $excludeId = null)
     {
         return $this->clampIndex(
             $targetIndex,
-            count($this->siblingsWithout($parent_id, $exclude_id))
+            count($this->siblingsWithout($parentId, $excludeId))
         );
     }
     // }}}
@@ -199,7 +199,7 @@ class Positions
         );
         $query->execute([
             'id' => $id,
-            'doc_id' => $this->doc_id,
+            'doc_id' => $this->docId,
         ]);
 
         if (!($node = $query->fetchObject())) {
@@ -214,7 +214,7 @@ class Positions
         $query->execute([
             'parent_id' => $node->id_parent,
             'pos' => $node->pos,
-            'doc_id' => $this->doc_id,
+            'doc_id' => $this->docId,
         ]);
         $result = $query->fetchObject();
 
@@ -227,9 +227,9 @@ class Positions
      * gets the index a child would get when appended to the child list,
      * i.e. the number of current children
      *
-     * @param $parent_id (int) db-id of parent node
+     * @param $parentId (int) db-id of parent node
      */
-    public function appendIndex($parent_id)
+    public function appendIndex($parentId)
     {
         $query = $this->pdo->prepare(
             "SELECT COUNT(*) AS pos
@@ -237,8 +237,8 @@ class Positions
             WHERE xml.id_parent = :target_id AND id_doc = :doc_id",
         );
         $query->execute([
-            'target_id' => $parent_id,
-            'doc_id' => $this->doc_id,
+            'target_id' => $parentId,
+            'doc_id' => $this->docId,
         ]);
 
         if ($object = $query->fetchObject()) {
@@ -259,38 +259,38 @@ class Positions
      * to be renumbered. if the space between the neighbours is exhausted,
      * the child list is rebalanced and the position recalculated.
      *
-     * @param $parent_id (int) db-id of parent node
+     * @param $parentId (int) db-id of parent node
      * @param $index (int) insertion index in the child list, a negative
      *        position (like -1) appends the node
-     * @param $exclude_id (int) db-id of a child that does not count into
+     * @param $excludeId (int) db-id of a child that does not count into
      *        the index (a node that is moved inside its own parent)
      *
      * @return (int) pos value for the node to insert
      */
-    public function positionForIndex($parent_id, $index, $exclude_id = null)
+    public function positionForIndex($parentId, $index, $excludeId = null)
     {
-        $siblings = $this->siblingsWithout($parent_id, $exclude_id);
+        $siblings = $this->siblingsWithout($parentId, $excludeId);
 
-        $num_siblings = count($siblings);
-        $index = $this->clampIndex($index, $num_siblings);
+        $numSiblings = count($siblings);
+        $index = $this->clampIndex($index, $numSiblings);
 
-        if ($index >= $num_siblings) {
+        if ($index >= $numSiblings) {
             // appending does not need room between two neighbours
-            $last_pos = $num_siblings > 0 ? (int) $siblings[$num_siblings - 1]->pos : 0;
+            $lastPos = $numSiblings > 0 ? (int) $siblings[$numSiblings - 1]->pos : 0;
 
-            return $last_pos + self::POS_GAP;
+            return $lastPos + self::POS_GAP;
         }
 
-        $prev_pos = $index > 0 ? (int) $siblings[$index - 1]->pos : 0;
-        $next_pos = (int) $siblings[$index]->pos;
+        $prevPos = $index > 0 ? (int) $siblings[$index - 1]->pos : 0;
+        $nextPos = (int) $siblings[$index]->pos;
 
-        if ($next_pos - $prev_pos - 1 < self::POS_MIN_GAP) {
-            $this->rebalance($parent_id);
+        if ($nextPos - $prevPos - 1 < self::POS_MIN_GAP) {
+            $this->rebalance($parentId);
 
-            return $this->positionForIndex($parent_id, $index, $exclude_id);
+            return $this->positionForIndex($parentId, $index, $excludeId);
         }
 
-        return intdiv($prev_pos + $next_pos, 2);
+        return intdiv($prevPos + $nextPos, 2);
     }
     // }}}
 
@@ -300,13 +300,13 @@ class Positions
      * self::POS_GAP between their positions; called when the sparse
      * positions of a child list are exhausted
      *
-     * @param $parent_id (int) db-id of parent node
+     * @param $parentId (int) db-id of parent node
      * @param $order (array) optional list of child ids giving the new
      *        order, null to keep the order stored in the database
      */
-    public function rebalance($parent_id, $order = null): void
+    public function rebalance($parentId, $order = null): void
     {
-        $siblings = $this->siblings($parent_id);
+        $siblings = $this->siblings($parentId);
 
         if (count($siblings) == 0) {
             return;
@@ -326,7 +326,7 @@ class Positions
             $ids = array_map('intval', $order);
 
             if (count($ids) != count($current) || array_diff($ids, $current) || array_diff($current, $ids)) {
-                throw new XmlDbException("Can not reorder the children of node {$parent_id}, the node list does not match.");
+                throw new XmlDbException("Can not reorder the children of node {$parentId}, the node list does not match.");
             }
         }
 
@@ -339,18 +339,18 @@ class Positions
         $this->pdo->exec(
             "UPDATE {$this->table}
             SET pos = pos + " . self::SCRATCH_OFFSET . "
-            WHERE id_doc = " . (int) $this->doc_id . " AND id_parent = " . (int) $parent_id . "
+            WHERE id_doc = " . (int) $this->docId . " AND id_parent = " . (int) $parentId . "
             ORDER BY pos DESC"
         );
 
         // every sibling gets a position of its own, so writing the final
         // positions in batches cannot collide with the unique sibling
         // index either
-        $positions = new CaseUpdate($this->pdo, $this->table, $this->batch_size);
+        $positions = new CaseUpdate($this->pdo, $this->table, $this->batchSize);
         foreach ($ids as $index => $id) {
             $positions->add($id, ($index + 1) * self::POS_GAP);
         }
-        $positions->write('pos', ['id_doc' => $this->doc_id]);
+        $positions->write('pos', ['id_doc' => $this->docId]);
     }
     // }}}
 }

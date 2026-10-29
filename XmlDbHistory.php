@@ -17,13 +17,13 @@ class XmlDbHistory implements Interfaces\XmlGetter
     // {{{ variables
     protected $pdo;
     protected $xmlDb;
-    protected $db_ns;
-    protected $table_history;
+    protected $dbNs;
+    protected $tableHistory;
 
-    protected $doc_ids = [];
+    protected $docIds = [];
 
-    protected $table_prefix = 'dp_';
-    protected $table_docs;
+    protected $tablePrefix = 'dp_';
+    protected $tableDocs;
 
     protected $options;
 
@@ -34,22 +34,22 @@ class XmlDbHistory implements Interfaces\XmlGetter
     /**
      * creates an instance of the read only view on the published versions
      *
-     * @param $table_prefix (string) prefix of the tables of the library
+     * @param $tablePrefix (string) prefix of the tables of the library
      * @param $pdo (Depage\Db\Pdo) database connection
      * @param $cache (Depage\Cache\Cache) cache instance
      * @param $options (array) options of the instance
      */
-    public function __construct($table_prefix, $pdo, $cache, $options = [])
+    public function __construct($tablePrefix, $pdo, $cache, $options = [])
     {
         $this->pdo = $pdo;
         $this->pdo->setAttribute(\PDO::ATTR_ORACLE_NULLS, \PDO::NULL_NATURAL);
 
-        $this->xmlDb = new XmlDb($table_prefix, $pdo, $cache, $options);
-        $this->db_ns = new XmlNs('db', 'http://cms.depagecms.net/ns/database');
+        $this->xmlDb = new XmlDb($tablePrefix, $pdo, $cache, $options);
+        $this->dbNs = new XmlNs('db', 'http://cms.depagecms.net/ns/database');
 
-        $this->table_prefix = $table_prefix;
-        $this->table_docs = $table_prefix . '_xmldocs';
-        $this->table_history = $table_prefix . '_history';
+        $this->tablePrefix = $tablePrefix;
+        $this->tableDocs = $tablePrefix . '_xmldocs';
+        $this->tableHistory = $tablePrefix . '_history';
     }
     // }}}
 
@@ -58,20 +58,20 @@ class XmlDbHistory implements Interfaces\XmlGetter
      * gets the doc-id of a xml-document by name or id and checks if the
      * document has at least one version in the history
      *
-     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $docIdOrName (mixed) id or name of the document
      *
      * @return int|false id of the document or false when the document does
      *         not exist or has no version
      */
-    public function docExists($doc_id_or_name)
+    public function docExists($docIdOrName)
     {
         $result = false;
 
-        $id = $this->xmlDb->docExists($doc_id_or_name);
+        $id = $this->xmlDb->docExists($docIdOrName);
 
         $query = $this->pdo->prepare("
             SELECT doc_id
-            FROM {$this->table_history}
+            FROM {$this->tableHistory}
             WHERE doc_id = :id
             LIMIT 1
         ");
@@ -91,14 +91,14 @@ class XmlDbHistory implements Interfaces\XmlGetter
     /**
      * gets the info of a document
      *
-     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $docIdOrName (mixed) id or name of the document
      *
      * @return object|false the info of the document or false if it does not
      *         exist
      **/
-    public function getDocInfo($doc_id_or_name)
+    public function getDocInfo($docIdOrName)
     {
-        return $this->xmlDb->getDocInfo($doc_id_or_name);
+        return $this->xmlDb->getDocInfo($docIdOrName);
     }
     // }}}
     // {{{ getDocXml
@@ -108,23 +108,23 @@ class XmlDbHistory implements Interfaces\XmlGetter
      * if the property "timestamp" is set, the version of that timestamp is
      * returned, otherwise the version that was published last
      *
-     * @param $doc_id_or_name (mixed) id or name of the document
-     * @param $add_id_attribute (bool) whether to add the db:id attributes
+     * @param $docIdOrName (mixed) id or name of the document
+     * @param $addIdAttribute (bool) whether to add the db:id attributes
      *
      * @return bool|\DOMDocument
      */
-    public function getDocXml($doc_id_or_name, $add_id_attribute = true)
+    public function getDocXml($docIdOrName, $addIdAttribute = true)
     {
         $xml = false;
 
-        if ($doc_id = $this->docExists($doc_id_or_name)) {
-            $doc = new Document($this, $doc_id);
+        if ($docId = $this->docExists($docIdOrName)) {
+            $doc = new Document($this, $docId);
             $history = $doc->getHistory();
 
             if (!is_null($this->timestamp)) {
-                $xml = $history->getXml($this->timestamp, $add_id_attribute);
+                $xml = $history->getXml($this->timestamp, $addIdAttribute);
             } else {
-                $xml = $history->getLastPublishedXml($add_id_attribute);
+                $xml = $history->getLastPublishedXml($addIdAttribute);
             }
         }
 
@@ -136,18 +136,18 @@ class XmlDbHistory implements Interfaces\XmlGetter
      * gets the first node of a published version of a document that matches
      * an xpath query
      *
-     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $docIdOrName (mixed) id or name of the document
      * @param $xpath (string) xpath to target node
-     * @param $add_id_attribute (bool) whether to add the db:id attributes
+     * @param $addIdAttribute (bool) whether to add the db:id attributes
      *
      * @return bool|\DOMDocument
      */
-    public function getDocXmlXpath($doc_id_or_name, $xpath, $add_id_attribute = true)
+    public function getDocXmlXpath($docIdOrName, $xpath, $addIdAttribute = true)
     {
         $xml = false;
 
-        if ($doc_id = $this->docExists($doc_id_or_name)) {
-            $xmlFull = $this->getDocXml($doc_id_or_name, $add_id_attribute);
+        if ($docId = $this->docExists($docIdOrName)) {
+            $xmlFull = $this->getDocXml($docIdOrName, $addIdAttribute);
             if ($xmlFull === false) {
                 throw new \Exception("Document could not be read from history");
             }
@@ -190,10 +190,10 @@ class XmlDbHistory implements Interfaces\XmlGetter
         return [
             'pdo',
             'xmlDb',
-            'db_ns',
-            'table_prefix',
-            'table_docs',
-            'table_history',
+            'dbNs',
+            'tablePrefix',
+            'tableDocs',
+            'tableHistory',
             'options',
         ];
     }

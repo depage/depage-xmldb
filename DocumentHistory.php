@@ -16,22 +16,22 @@ class DocumentHistory
 {
     // {{{ variables
     private $pdo;
-    private $db_ns;
-    private $table_history;
+    private $dbNs;
+    private $tableHistory;
 
     private $document;
     private $dateFormat = 'Y-m-d H:i:s';
     // }}}
     // {{{ constructor
-    public function __construct(\Depage\Db\Pdo $pdo, $table_prefix, Document $document)
+    public function __construct(\Depage\Db\Pdo $pdo, $tablePrefix, Document $document)
     {
         $this->document = $document;
 
         $this->pdo = $pdo;
 
-        $this->db_ns = new XmlNs('db', 'http://cms.depagecms.net/ns/database');
+        $this->dbNs = new XmlNs('db', 'http://cms.depagecms.net/ns/database');
 
-        $this->table_history = $table_prefix . '_history';
+        $this->tableHistory = $tablePrefix . '_history';
     }
     // }}}
 
@@ -50,7 +50,7 @@ class DocumentHistory
     public function getVersions($published = null, $maxResults = null)
     {
         $query = "SELECT h.hash, h.last_saved_at, h.first_saved_at, h.user_id, h.published
-            FROM {$this->table_history} AS h
+            FROM {$this->tableHistory} AS h
             WHERE h.doc_id = :doc_id";
 
         $params = [
@@ -110,11 +110,11 @@ class DocumentHistory
      * getXml
      *
      * @param int $timestamp
-     * @param bool $add_id_attribute
+     * @param bool $addIdAttribute
      *
      * @return bool|\DOMDocument|object
      */
-    public function getXml($timestamp, $add_id_attribute = true)
+    public function getXml($timestamp, $addIdAttribute = true)
     {
         $doc = false;
         $docId = $this->document->getDocId();
@@ -124,7 +124,7 @@ class DocumentHistory
                 h.xml,
                 h.last_saved_at as lastchange,
                 h.user_id as uid
-            FROM {$this->table_history} AS h
+            FROM {$this->tableHistory} AS h
             WHERE h.doc_id = :doc_id
                 AND h.last_saved_at <= :timestamp
             ORDER BY h.last_saved_at DESC
@@ -139,8 +139,8 @@ class DocumentHistory
         if ($query->execute($params) && $result = $query->fetchObject()) {
             $doc = new \Depage\Xml\Document();
             $doc->loadXML($result->xml);
-            if (!$add_id_attribute) {
-                Document::removeNodeAttr($doc, $this->db_ns, 'id');
+            if (!$addIdAttribute) {
+                Document::removeNodeAttr($doc, $this->dbNs, 'id');
             }
             $doc->documentElement->setAttribute('db:docid', $docId);
             $doc->documentElement->setAttribute('db:lastchange', $result->lastchange);
@@ -155,13 +155,13 @@ class DocumentHistory
      *
      * load xml from last published version from history
      */
-    public function getLastPublishedXml($add_id_attribute = true)
+    public function getLastPublishedXml($addIdAttribute = true)
     {
         $versions = $this->getVersions(true, 1);
         reset($versions);
         $latest = key($versions);
 
-        return $this->getXml($latest, $add_id_attribute);
+        return $this->getXml($latest, $addIdAttribute);
     }
     // }}}
 
@@ -170,20 +170,20 @@ class DocumentHistory
      * gets the current document xml and saves a version to the history
      * add SHA hash column for data integrity
      *
-     * @param int $user_id
+     * @param int $userId
      * @param bool $published
      *
      * @return bool | timestamp
      */
-    public function save($user_id, $published = false)
+    public function save($userId, $published = false)
     {
         $result = false;
         $timestamp = time();
 
         $doc = $this->document->getXml();
         $dth = $this->document->getDoctypeHandler();
-        Document::removeNodeAttr($doc, $this->db_ns, 'lastchange');
-        Document::removeNodeAttr($doc, $this->db_ns, 'docid');
+        Document::removeNodeAttr($doc, $this->dbNs, 'lastchange');
+        Document::removeNodeAttr($doc, $this->dbNs, 'docid');
 
         $dth->testDocumentForHistory($doc);
 
@@ -195,7 +195,7 @@ class DocumentHistory
         if (!$latestVersion || $latestVersion->hash != $hash) {
             // insert new version into history
             $query = $this->pdo->prepare(
-                "INSERT INTO {$this->table_history} (doc_id, hash, xml, first_saved_at, last_saved_at, user_id, published)
+                "INSERT INTO {$this->tableHistory} (doc_id, hash, xml, first_saved_at, last_saved_at, user_id, published)
                 VALUES(:doc_id, :hash, :xml, :timestamp1, :timestamp2, :user_id, :published);"
             );
 
@@ -205,7 +205,7 @@ class DocumentHistory
                 'xml' => $xml,
                 'timestamp1' => date($this->dateFormat, $timestamp),
                 'timestamp2' => date($this->dateFormat, $timestamp),
-                'user_id' => $user_id,
+                'user_id' => $userId,
                 'published' => $published ? 1 : 0,
             ];
 
@@ -214,7 +214,7 @@ class DocumentHistory
         } else {
             // update date of latest version
             $query = $this->pdo->prepare(
-                "UPDATE {$this->table_history}
+                "UPDATE {$this->tableHistory}
                 SET last_saved_at = :timestamp
                 WHERE
                     doc_id = :doc_id AND
@@ -247,10 +247,10 @@ class DocumentHistory
     public function restore($timestamp)
     {
         $success = false;
-        $xml_doc = $this->getXml($timestamp);
+        $xmlDoc = $this->getXml($timestamp);
 
-        if ($this->document->save($xml_doc)) {
-            $success = $xml_doc;
+        if ($this->document->save($xmlDoc)) {
+            $success = $xmlDoc;
         }
 
         return $success;
@@ -265,7 +265,7 @@ class DocumentHistory
     public function delete($timestamp)
     {
         $query = $this->pdo->prepare(
-            "DELETE FROM {$this->table_history}
+            "DELETE FROM {$this->tableHistory}
              WHERE doc_id = :doc_id AND last_saved_at = :timestamp;"
         );
 

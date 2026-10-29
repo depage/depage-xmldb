@@ -66,10 +66,10 @@ class SubhashTest extends XmlDbTestCase
     }
     // }}}
     // {{{ getChildIds
-    protected function getChildIds($parent_id)
+    protected function getChildIds($parentId)
     {
         return array_map('intval', $this->pdo->query(
-            "SELECT id FROM {$this->xmlTree} WHERE id_doc = 3 AND id_parent = {$parent_id}"
+            "SELECT id FROM {$this->xmlTree} WHERE id_doc = 3 AND id_parent = {$parentId}"
         )->fetchAll(\PDO::FETCH_COLUMN));
     }
     // }}}

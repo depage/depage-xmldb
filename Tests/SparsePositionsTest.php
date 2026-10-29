@@ -234,7 +234,7 @@ class SparsePositionsTest extends XmlDbTestCase
      */
     protected function addDenseSiblings($count)
     {
-        $max_pos = (int) $this->pdo->query(
+        $maxPos = (int) $this->pdo->query(
             "SELECT MAX(pos) FROM {$this->xmlTree} WHERE id_doc = 3 AND id_parent = 6"
         )->fetchColumn();
 
@@ -247,7 +247,7 @@ class SparsePositionsTest extends XmlDbTestCase
 
         for ($i = 0; $i < $count; $i++) {
             $query->execute([
-                'pos' => $max_pos + $i + 1,
+                'pos' => $maxPos + $i + 1,
                 'name' => 'dense' . $i,
             ]);
             $ids[] = (int) $this->pdo->lastInsertId();

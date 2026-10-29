@@ -4,30 +4,30 @@ namespace Depage\XmlDb\Tests;
 
 class DocumentTestClass extends \Depage\XmlDb\Document
 {
-    public $free_element_ids = [];
+    public $freeElementIds = [];
     // {{{ setDoctypeHandler
     public function setDoctypeHandler($dth)
     {
-        $this->doctypeHandlers[$this->doc_id] = $dth;
+        $this->doctypeHandlers[$this->docId] = $dth;
     }
     // }}}
 
     // {{{ getAppendIndex
-    public function getAppendIndex($target_id)
+    public function getAppendIndex($targetId)
     {
-        return parent::getAppendIndex($target_id);
+        return parent::getAppendIndex($targetId);
     }
     // }}}
     // {{{ saveNodeToDb
-    public function saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position = false)
+    public function saveNodeToDb($node, $id, $targetId, $targetIndex, $setPosition = false)
     {
-        return parent::saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position);
+        return parent::saveNodeToDb($node, $id, $targetId, $targetIndex, $setPosition);
     }
     // }}}
     // {{{ getNodeArrayForSaving
-    public function getNodeArrayForSaving(&$node_array, $node, $parent_index = null, $pos = 0, $stripwhitespace = true)
+    public function getNodeArrayForSaving(&$nodeArray, $node, $parentIndex = null, $pos = 0, $stripwhitespace = true)
     {
-        return parent::getNodeArrayForSaving($node_array, $node, $parent_index, $pos, $stripwhitespace);
+        return parent::getNodeArrayForSaving($nodeArray, $node, $parentIndex, $pos, $stripwhitespace);
     }
     // }}}
     // {{{ getFreeNodeIds
@@ -37,15 +37,15 @@ class DocumentTestClass extends \Depage\XmlDb\Document
     }
     // }}}
     // {{{ rebalancePositions
-    public function rebalancePositions($parent_id, $order = null)
+    public function rebalancePositions($parentId, $order = null)
     {
-        return parent::rebalancePositions($parent_id, $order);
+        return parent::rebalancePositions($parentId, $order);
     }
     // }}}
     // {{{ saveNodeIn
-    public function saveNodeIn($node, $target_id, $targetIndex, $inc_children)
+    public function saveNodeIn($node, $targetId, $targetIndex, $incChildren)
     {
-        return parent::saveNodeIn($node, $target_id, $targetIndex, $inc_children);
+        return parent::saveNodeIn($node, $targetId, $targetIndex, $incChildren);
     }
     // }}}
     // {{{ saveNodePrivate

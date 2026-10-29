@@ -138,12 +138,12 @@ class SavePatchTest extends XmlDbTestCase
      * ids of the children of a node in the order they are stored in the
      * database
      */
-    protected function childIdsOf($parent_id)
+    protected function childIdsOf($parentId)
     {
         return array_map(
             'intval',
             $this->pdo->query(
-                "SELECT id FROM {$this->xmlTree} WHERE id_doc = 3 AND id_parent = " . (int) $parent_id . " ORDER BY pos ASC"
+                "SELECT id FROM {$this->xmlTree} WHERE id_doc = 3 AND id_parent = " . (int) $parentId . " ORDER BY pos ASC"
             )->fetchAll(\PDO::FETCH_COLUMN)
         );
     }
@@ -280,9 +280,9 @@ class SavePatchTest extends XmlDbTestCase
         $this->assertCount(2, $children);
         $this->assertSame(6, (int) $children[1]);
 
-        $new_id = (int) $children[0];
-        $this->assertNotContains($new_id, [4, 5, 6, 7, 8, 30]);
-        $this->assertSame('pg:subpage', $rows[$new_id]['name']);
+        $newId = (int) $children[0];
+        $this->assertNotContains($newId, [4, 5, 6, 7, 8, 30]);
+        $this->assertSame('pg:subpage', $rows[$newId]['name']);
 
         // patching the same document again changes nothing
         $this->doc->savePatch($this->getCurrentDom());

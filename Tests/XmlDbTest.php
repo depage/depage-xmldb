@@ -188,13 +188,13 @@ class XmlDbTest extends XmlDbTestCase
         $this->assertArrayHasKey('pages', $this->xmlDb->getDocuments('pages'));
 
         $this->xmlDb->docExists('pages'); // load id into cache
-        $this->assertEquals($idsBefore, $this->xmlDb->doc_ids);
+        $this->assertEquals($idsBefore, $this->xmlDb->docIds);
 
         $return = $this->xmlDb->removeDoc('pages');
         $this->assertTrue($return);
 
         $this->assertArrayNotHasKey('pages', $this->xmlDb->getDocuments('pages'));
-        $this->assertEquals($idsAfter, $this->xmlDb->doc_ids);
+        $this->assertEquals($idsAfter, $this->xmlDb->docIds);
     }
     // }}}
     // {{{ testRemoveDocUnavailable

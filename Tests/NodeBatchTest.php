@@ -41,11 +41,11 @@ class NodeBatchTest extends XmlDbTestCase
      * @param $pdo connection to write with, eg. the counting connection of
      *        a test; defaults to the connection of the test
      * @param $size (int) number of nodes a single statement writes
-     * @param $doc_id (int) document the batch writes to
+     * @param $docId (int) document the batch writes to
      */
-    protected function batch($pdo = null, $size = 10, $doc_id = 3)
+    protected function batch($pdo = null, $size = 10, $docId = 3)
     {
-        return new NodeBatch($pdo ?? $this->pdo, $this->xmlTree, $doc_id, $size);
+        return new NodeBatch($pdo ?? $this->pdo, $this->xmlTree, $docId, $size);
     }
     // }}}
     // {{{ freeId
@@ -67,14 +67,14 @@ class NodeBatchTest extends XmlDbTestCase
     /**
      * row of a child of document 3, selected by parent node and position
      */
-    protected function getRowByPosition($parent_id, $pos)
+    protected function getRowByPosition($parentId, $pos)
     {
         $query = $this->pdo->prepare(
             "SELECT id, id_doc, id_parent, pos, value FROM {$this->xmlTree}
             WHERE id_doc = 3 AND id_parent = :parent_id AND pos = :pos"
         );
         $query->execute([
-            'parent_id' => $parent_id,
+            'parent_id' => $parentId,
             'pos' => $pos,
         ]);
 
@@ -162,8 +162,8 @@ class NodeBatchTest extends XmlDbTestCase
             3 => [5, 900014],
         ];
         foreach ($ids as $key => $id) {
-            [$parent_id, $pos] = $written[$key];
-            $row = $this->getRowByPosition($parent_id, $pos);
+            [$parentId, $pos] = $written[$key];
+            $row = $this->getRowByPosition($parentId, $pos);
             $this->assertNotFalse($row, "node {$key} was not written");
             $this->assertSame($id, (int) $row['id']);
         }

@@ -24,9 +24,9 @@ class CacheKey
      * (its subdocuments and xpath results) live below this prefix, so
      * deleting the prefix drops all of them
      */
-    public static function forDocument(string $table_docs, $doc_id): string
+    public static function forDocument(string $tableDocs, $docId): string
     {
-        return "{$table_docs}_d{$doc_id}/";
+        return "{$tableDocs}_d{$docId}/";
     }
     // }}}
 }

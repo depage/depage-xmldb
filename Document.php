@@ -37,23 +37,23 @@ class Document implements Interfaces\DocumentWriterHost
     // {{{ variables
     protected $pdo;
     protected $cache;
-    protected $db_ns;
+    protected $dbNs;
 
-    protected $table_prefix;
-    protected $table_docs;
-    protected $table_xml;
+    protected $tablePrefix;
+    protected $tableDocs;
+    protected $tableXml;
 
     protected $xmlDb;
-    protected $doc_id;
+    protected $docId;
 
-    protected $id_attribute = 'id';
-    protected $id_data_attribute = 'dataid';
+    protected $idAttribute = 'id';
+    protected $idDataAttribute = 'dataid';
 
-    protected $free_element_ids = [];
+    protected $freeElementIds = [];
     protected $doctypeHandlers = [];
 
     protected $entities = '';
-    protected $namespace_string = '';
+    protected $namespaceString = '';
     protected $namespaces = [];
     protected $lastchange = '';
     protected $lastchangeUid = '';
@@ -96,22 +96,22 @@ class Document implements Interfaces\DocumentWriterHost
      * Construct
      *
      * @param $xmlDb
-     * @param $doc_id
+     * @param $docId
      */
-    public function __construct($xmlDb, $doc_id)
+    public function __construct($xmlDb, $docId)
     {
         $this->pdo = $xmlDb->pdo;
         $this->cache = $xmlDb->cache;
 
-        $this->db_ns = new XmlNs('db', 'http://cms.depagecms.net/ns/database');
+        $this->dbNs = new XmlNs('db', 'http://cms.depagecms.net/ns/database');
 
         $this->xmlDb = $xmlDb;
 
-        $this->table_prefix = $xmlDb->table_prefix;
-        $this->table_docs = $xmlDb->table_docs;
-        $this->table_xml = $xmlDb->table_xml;
+        $this->tablePrefix = $xmlDb->tablePrefix;
+        $this->tableDocs = $xmlDb->tableDocs;
+        $this->tableXml = $xmlDb->tableXml;
 
-        $this->doc_id = $doc_id;
+        $this->docId = $docId;
     }
     // }}}
 
@@ -123,7 +123,7 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function getDocId()
     {
-        return $this->doc_id;
+        return $this->docId;
     }
     // }}}
     // {{{ getXml
@@ -132,14 +132,14 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @return string
      */
-    public function getXml($add_id_attribute = true)
+    public function getXml($addIdAttribute = true)
     {
-        $root_id = $this->getDocInfo()->rootid;
+        $rootId = $this->getDocInfo()->rootid;
 
-        if (is_null($root_id)) {
+        if (is_null($rootId)) {
             throw new Exceptions\XmlDbException('Trying to get contents of empty document.');
         } else {
-            $xml = $this->getSubdocByNodeId($root_id, $add_id_attribute);
+            $xml = $this->getSubdocByNodeId($rootId, $addIdAttribute);
         }
 
         return $xml;
@@ -168,12 +168,12 @@ class Document implements Interfaces\DocumentWriterHost
                     docs.ns AS namespaces,
                     docs.lastchange AS lastchange,
                     docs.lastchange_uid AS lastchangeUid
-                FROM {$this->table_docs} AS docs
+                FROM {$this->tableDocs} AS docs
                 WHERE docs.id = :doc_id
                 LIMIT 1",
             );
             $query->execute([
-                'doc_id' => $this->doc_id,
+                'doc_id' => $this->docId,
             ]);
 
             $info = $query->fetchObject();
@@ -192,13 +192,13 @@ class Document implements Interfaces\DocumentWriterHost
     // }}}
     // {{{ getDoctypeHandler
     /**
-     * @param $doc_id
+     * @param $docId
      *
      * @return mixed
      */
     public function getDoctypeHandler()
     {
-        if (!isset($this->doctypeHandlers[$this->doc_id])) {
+        if (!isset($this->doctypeHandlers[$this->docId])) {
             $className = $this->getDocInfo()->type;
 
             if (empty($className)) {
@@ -219,13 +219,13 @@ class Document implements Interfaces\DocumentWriterHost
             }
 
             if ($handler instanceof Interfaces\DoctypeInterface) {
-                $this->doctypeHandlers[$this->doc_id] = $handler;
+                $this->doctypeHandlers[$this->docId] = $handler;
             } else {
                 throw new Exceptions\XmlDbException('Doctype handler must implement DoctypeInterface');
             }
         }
 
-        return $this->doctypeHandlers[$this->doc_id];
+        return $this->doctypeHandlers[$this->docId];
     }
     // }}}
     // {{{ getPermissions
@@ -248,11 +248,11 @@ class Document implements Interfaces\DocumentWriterHost
     {
         $query = $this->pdo->prepare(
             "SELECT docs.entities AS entities, docs.ns AS namespaces
-            FROM {$this->table_docs} AS docs
+            FROM {$this->tableDocs} AS docs
             WHERE docs.id = :doc_id",
         );
         $query->execute([
-            'doc_id' => $this->doc_id,
+            'doc_id' => $this->docId,
         ]);
 
         return $query->fetchObject();
@@ -266,7 +266,7 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function getHistory()
     {
-        return new DocumentHistory($this->pdo, $this->table_prefix, $this);
+        return new DocumentHistory($this->pdo, $this->tablePrefix, $this);
     }
     // }}}
     // {{{ positions
@@ -281,7 +281,7 @@ class Document implements Interfaces\DocumentWriterHost
     protected function positions()
     {
         if (is_null($this->positions)) {
-            $this->positions = new Helpers\Positions($this->pdo, $this->table_xml, $this->doc_id, self::SAVE_BATCH_SIZE);
+            $this->positions = new Helpers\Positions($this->pdo, $this->tableXml, $this->docId, self::SAVE_BATCH_SIZE);
         }
 
         return $this->positions;
@@ -304,10 +304,10 @@ class Document implements Interfaces\DocumentWriterHost
         if (is_null($this->writer)) {
             $this->writer = new Helpers\DocumentWriter(
                 pdo: $this->pdo,
-                table: $this->table_xml,
-                doc_id: $this->doc_id,
-                db_ns: $this->db_ns,
-                id_attribute: $this->id_attribute,
+                table: $this->tableXml,
+                docId: $this->docId,
+                dbNs: $this->dbNs,
+                idAttribute: $this->idAttribute,
                 positions: $this->positions(),
                 host: $this
             );
@@ -355,12 +355,12 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param    $node (domxmlnode) node to get id from
      *
-     * @return    $db_id (int)
+     * @return    $dbId (int)
      */
     public function getNodeId($node)
     {
         return $node->nodeType == XML_ELEMENT_NODE
-            ? $node->getAttributeNS($this->db_ns->uri, $this->id_attribute)
+            ? $node->getAttributeNS($this->dbNs->uri, $this->idAttribute)
             : null;
     }
     // }}}
@@ -372,12 +372,12 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param    $node (domxmlnode) node to get id from
      *
-     * @return    $db_id (int)
+     * @return    $dbId (int)
      */
     public function getNodeDataId($node)
     {
         return $node->nodeType == XML_ELEMENT_NODE
-            ? $node->getAttributeNS($this->db_ns->uri, $this->id_data_attribute)
+            ? $node->getAttributeNS($this->dbNs->uri, $this->idDataAttribute)
             : null;
     }
     // }}}
@@ -387,12 +387,12 @@ class Document implements Interfaces\DocumentWriterHost
     {
         $query = $this->pdo->prepare(
             "SELECT xml.$attribute AS $attribute
-            FROM {$this->table_xml} AS xml
+            FROM {$this->tableXml} AS xml
             WHERE xml.id = :id AND xml.id_doc = :doc_id",
         );
         $query->execute([
             'id' => $id,
-            'doc_id' => $this->doc_id,
+            'doc_id' => $this->docId,
         ]);
 
         return ($result = $query->fetchObject()) ? $result->$attribute : false;
@@ -404,7 +404,7 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param $id (int) node db-id
      *
-     * @return $node_name (string) name of node, false if node doesn't exist.
+     * @return $nodeName (string) name of node, false if node doesn't exist.
      */
     public function getNodeNameById($id)
     {
@@ -417,7 +417,7 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param $id (int) node db-id
      *
-     * @return $parent_id (id) db-id of parent node, false, if node doesn't exist.
+     * @return $parentId (id) db-id of parent node, false, if node doesn't exist.
      */
     public function getParentIdById($id)
     {
@@ -451,11 +451,11 @@ class Document implements Interfaces\DocumentWriterHost
      * self::POS_GAP between their positions; called when the sparse
      * positions of a child list are exhausted
      *
-     * @param $parent_id (int) db-id of parent node
+     * @param $parentId (int) db-id of parent node
      */
-    protected function rebalancePositions($parent_id, $order = null)
+    protected function rebalancePositions($parentId, $order = null)
     {
-        $this->positions()->rebalance($parent_id, $order);
+        $this->positions()->rebalance($parentId, $order);
     }
     // }}}
 
@@ -465,7 +465,7 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @attention this supports only a small subset of xpath-queries. so recheck source before using.
      *
-     * @param $this->doc_id (int) id of document
+     * @param $this->docId (int) id of document
      * @param $xpath (string) xpath to target node
      *
      * @return $nodeids (array) array of found node ids
@@ -474,15 +474,15 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function getNodeIdsByXpath($xpath)
     {
-        $identifier = Helpers\CacheKey::forDocument($this->table_docs, $this->doc_id) . 'xpath_' . sha1($xpath);
-        $fetched_ids = $this->cache->get($identifier);
+        $identifier = Helpers\CacheKey::forDocument($this->tableDocs, $this->docId) . 'xpath_' . sha1($xpath);
+        $fetchedIds = $this->cache->get($identifier);
 
-        if ($fetched_ids === false) {
-            $fetched_ids = $this->xmlDb->getNodeIdsByXpath($xpath, $this->doc_id);
+        if ($fetchedIds === false) {
+            $fetchedIds = $this->xmlDb->getNodeIdsByXpath($xpath, $this->docId);
 
-            $this->cache->set($identifier, $fetched_ids);
+            $this->cache->set($identifier, $fetchedIds);
         }
-        return $fetched_ids;
+        return $fetchedIds;
     }
     // }}}
     // {{{ getSubdocByNodeId
@@ -490,12 +490,12 @@ class Document implements Interfaces\DocumentWriterHost
      * gets an xml-document-object from specific db-id
      *
      * @param $id (int) db-id of node to get
-     * @param $add_id_attribute (bool) true, if you want to add the db-id
+     * @param $addIdAttribute (bool) true, if you want to add the db-id
      *        attributes to xml-definition, false to remove them.
      */
-    public function getSubdocByNodeId($id, $add_id_attribute = true)
+    public function getSubdocByNodeId($id, $addIdAttribute = true)
     {
-        $identifier = Helpers\CacheKey::forDocument($this->table_docs, $this->doc_id) . "{$id}.xml";
+        $identifier = Helpers\CacheKey::forDocument($this->tableDocs, $this->docId) . "{$id}.xml";
         $xmlDoc = new \Depage\Xml\Document();
 
         if ($xmlStr = $this->cache->get($identifier)) {
@@ -513,35 +513,35 @@ class Document implements Interfaces\DocumentWriterHost
                             docs.ns AS namespaces,
                             docs.lastchange AS lastchange,
                             docs.lastchange_uid AS lastchangeUid
-                        FROM {$this->table_docs} AS docs
+                        FROM {$this->tableDocs} AS docs
                         WHERE docs.id = :doc_id",
                     );
                     $query->execute([
-                        'doc_id' => $this->doc_id,
+                        'doc_id' => $this->docId,
                     ]);
                     $result = $query->fetchObject();
 
                     $this->entities = $result->entities;
-                    $this->namespace_string = $result->namespaces;
-                    $this->namespaces = $this->extractNamespaces($this->namespace_string);
-                    $this->namespaces[$this->db_ns->ns] = $this->db_ns;
+                    $this->namespaceString = $result->namespaces;
+                    $this->namespaces = $this->extractNamespaces($this->namespaceString);
+                    $this->namespaces[$this->dbNs->ns] = $this->dbNs;
                     $this->lastchange = $result->lastchange;
                     $this->lastchangeUid = $result->lastchangeUid;
 
                     $query = $this->pdo->prepare(
-                        Helpers\TreeSql::descendants($this->table_xml, "id = :id AND id_doc = :doc_id", self::SORTKEY_PAD) . "
-                        SELECT lvl, xml.* FROM tree JOIN {$this->table_xml} AS xml ON tree.id = xml.id ORDER BY sortkey;",
+                        Helpers\TreeSql::descendants($this->tableXml, "id = :id AND id_doc = :doc_id", self::SORTKEY_PAD) . "
+                        SELECT lvl, xml.* FROM tree JOIN {$this->tableXml} AS xml ON tree.id = xml.id ORDER BY sortkey;",
                         \Depage\Db\Pdo::unbuffered(),
                     );
                     $query->execute([
-                        'doc_id' => $this->doc_id,
+                        'doc_id' => $this->docId,
                         'id' => $id,
                     ]);
                     $row = $query->fetchObject();
 
                     //get ROOT-NODE
                     if (!($row && $row->type == 'ELEMENT_NODE')) {
-                        throw new Exceptions\XmlDbException('This node is no ELEMENT_NODE or node does not exist' . " {$this->doc_id}/{$id}");
+                        throw new Exceptions\XmlDbException('This node is no ELEMENT_NODE or node does not exist' . " {$this->docId}/{$id}");
                     }
 
                     $this->addChildnodesByQuery($query, $row, $xmlDoc);
@@ -567,7 +567,7 @@ class Document implements Interfaces\DocumentWriterHost
             }
         }
 
-        if (is_a($xmlDoc, 'DOMDocument') && $xmlDoc->documentElement != null && !$add_id_attribute) {
+        if (is_a($xmlDoc, 'DOMDocument') && $xmlDoc->documentElement != null && !$addIdAttribute) {
             $this->removeIdAttr($xmlDoc);
         }
 
@@ -580,17 +580,17 @@ class Document implements Interfaces\DocumentWriterHost
      * one node, only the first node will be returned.
      *
      * @param    $xpath (string) xpath to target node
-     * @param    $add_id_attribute (bool) whether to add db:id attribute or not
+     * @param    $addIdAttribute (bool) whether to add db:id attribute or not
      *
      * @return    $doc (domxmlobject)
      */
-    public function getSubdocByXpath($xpath, $add_id_attribute = true)
+    public function getSubdocByXpath($xpath, $addIdAttribute = true)
     {
         $subdoc = false;
         $ids = $this->getNodeIdsByXpath($xpath);
 
         if (isset($ids[0])) {
-            $subdoc = $this->getSubdocByNodeId($ids[0], $add_id_attribute);
+            $subdoc = $this->getSubdocByNodeId($ids[0], $addIdAttribute);
         }
 
         return $subdoc;
@@ -601,38 +601,38 @@ class Document implements Interfaces\DocumentWriterHost
     /**
      * gets attribute of node
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $attr_name (string) name of attribute
+     * @param    $nodeId (int) db-id of node
+     * @param    $attrName (string) name of attribute
      *
      * @return    $val (string) value
      */
-    public function getAttribute($node_id, $attr_name)
+    public function getAttribute($nodeId, $attrName)
     {
-        $attributes = $this->getAttributes($node_id);
+        $attributes = $this->getAttributes($nodeId);
 
-        return (isset($attributes[$attr_name])) ? $attributes[$attr_name] : false;
+        return (isset($attributes[$attrName])) ? $attributes[$attrName] : false;
     }
     // }}}
     // {{{ getAttributes
     /**
      * gets all attributes of a node by id
      *
-     * @param    $node_id (int) db-id of node
+     * @param    $nodeId (int) db-id of node
      *
      * @return    $attributes (array) array of attributes
      */
-    public function getAttributes($node_id)
+    public function getAttributes($nodeId)
     {
         $attributes = [];
 
         $query = $this->pdo->prepare(
             "SELECT xml.value
-            FROM {$this->table_xml} AS xml
+            FROM {$this->tableXml} AS xml
             WHERE xml.id = :node_id AND xml.type='ELEMENT_NODE' AND xml.id_doc = :doc_id",
         );
         $query->execute([
-            'node_id' => $node_id,
-            'doc_id' => $this->doc_id,
+            'node_id' => $nodeId,
+            'doc_id' => $this->docId,
         ]);
 
         if ($result = $query->fetchObject()) {
@@ -674,8 +674,8 @@ class Document implements Interfaces\DocumentWriterHost
     public function buildNode($name, $attributes)
     {
         //@todo dont build node directly but get from templates according to document type
-        $doc_info = $this->getNamespacesAndEntities($this->doc_id);
-        $xml = "<$name {$doc_info->namespaces}";
+        $docInfo = $this->getNamespacesAndEntities($this->docId);
+        $xml = "<$name {$docInfo->namespaces}";
         foreach ($attributes as $attr => $value) {
             $xml .= " $attr=\"$value\"";
         }
@@ -695,7 +695,7 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function removeIdAttr($node)
     {
-        self::removeNodeAttr($node, $this->db_ns, $this->id_attribute);
+        self::removeNodeAttr($node, $this->dbNs, $this->idAttribute);
     }
     // }}}
 
@@ -715,7 +715,7 @@ class Document implements Interfaces\DocumentWriterHost
 
                 try {
                     $query = $this->pdo->prepare(
-                        "DELETE FROM {$this->table_xml}
+                        "DELETE FROM {$this->tableXml}
                         WHERE
                             id_doc = :id",
                     );
@@ -742,14 +742,14 @@ class Document implements Interfaces\DocumentWriterHost
     public function save(\DomDocument $xml)
     {
         return $this->inTransaction(function () use ($xml) {
-            $doc_info = $this->clearDoc();
+            $docInfo = $this->clearDoc();
 
             $namespaces = $this->getNamespaceString($xml);
 
             // @TODO get document and entities or set html_entities as standard as long as php does not inherit the entites() function
-            $doc_info->rootid = $this->saveNodePrivate($xml);
+            $docInfo->rootid = $this->saveNodePrivate($xml);
             $query = $this->pdo->prepare(
-                "UPDATE {$this->table_docs}
+                "UPDATE {$this->tableDocs}
                 SET
                     rootid = :rootid,
                     ns = :ns,
@@ -758,12 +758,12 @@ class Document implements Interfaces\DocumentWriterHost
             );
 
             $query->execute([
-                'rootid' => $doc_info->rootid,
+                'rootid' => $docInfo->rootid,
                 'ns' => $namespaces,
-                'doc_id' => $doc_info->id,
+                'doc_id' => $docInfo->id,
             ]);
 
-            return $doc_info->id;
+            return $docInfo->id;
         });
     }
     // }}}
@@ -795,11 +795,11 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function savePatch(\DomDocument $xml)
     {
-        $doc_info = $this->getDocInfo();
+        $docInfo = $this->getDocInfo();
         $plan = null;
 
-        if ($doc_info) {
-            $plan = $this->planPatch($xml, $doc_info);
+        if ($docInfo) {
+            $plan = $this->planPatch($xml, $docInfo);
         }
 
         if (is_null($plan)) {
@@ -810,7 +810,7 @@ class Document implements Interfaces\DocumentWriterHost
 
         $this->inTransaction(function () use ($plan, $xml) {
             $query = $this->pdo->prepare(
-                "UPDATE {$this->table_docs}
+                "UPDATE {$this->tableDocs}
                 SET
                     ns = :ns,
                     entities = ''
@@ -818,7 +818,7 @@ class Document implements Interfaces\DocumentWriterHost
             );
             $query->execute([
                 'ns' => $this->getNamespaceString($xml),
-                'doc_id' => $this->doc_id,
+                'doc_id' => $this->docId,
             ]);
 
             $this->applyPatch($plan);
@@ -828,7 +828,7 @@ class Document implements Interfaces\DocumentWriterHost
 
         $this->lastPatchStats = $plan['stats'] + ['fallback' => false];
 
-        return $doc_info->id;
+        return $docInfo->id;
     }
     // }}}
     // {{{ getLastPatchStats
@@ -850,12 +850,12 @@ class Document implements Interfaces\DocumentWriterHost
      * applyPatch(); returns null when the document can not be patched
      * (replaced root, missing database ids or too many changes)
      */
-    protected function planPatch(\DomDocument $xml, $doc_info)
+    protected function planPatch(\DomDocument $xml, $docInfo)
     {
         $root = $xml->documentElement;
-        $root_id = is_null($root) ? '' : $this->getNodeId($root);
+        $rootId = is_null($root) ? '' : $this->getNodeId($root);
 
-        if (empty($root_id) || (int) $root_id !== (int) $doc_info->rootid) {
+        if (empty($rootId) || (int) $rootId !== (int) $docInfo->rootid) {
             // new document or the root node was replaced
             return null;
         }
@@ -871,23 +871,23 @@ class Document implements Interfaces\DocumentWriterHost
      * can not be patched (replaced root, missing database id or too many
      * changes)
      *
-     * $check_root rejects the plan (instead of renaming the row in place)
+     * $checkRoot rejects the plan (instead of renaming the row in place)
      * when the root node is not compatible with the row its id points
      * to, i.e. was replaced by a node of another type or name;
      * saveNodePatch() uses this to fall back to a full saveNode()
      */
-    protected function planNodePatch($node, $check_root = false)
+    protected function planNodePatch($node, $checkRoot = false)
     {
         // run the subtree through the same pipeline save() uses, this
         // also applies the doctype whitespace handling
-        $node_array = [];
-        $this->getNodeArrayForSaving($node_array, $node);
+        $nodeArray = [];
+        $this->getNodeArrayForSaving($nodeArray, $node);
 
         if (is_null($this->patchPlanner)) {
-            $this->patchPlanner = new Patch\PatchPlanner($this->pdo, $this->table_xml, $this->doc_id, $this->db_ns, $this->id_attribute);
+            $this->patchPlanner = new Patch\PatchPlanner($this->pdo, $this->tableXml, $this->docId, $this->dbNs, $this->idAttribute);
         }
 
-        return $this->patchPlanner->plan($node_array, $check_root);
+        return $this->patchPlanner->plan($nodeArray, $checkRoot);
     }
     // }}}
     // {{{ applyPatch
@@ -899,7 +899,7 @@ class Document implements Interfaces\DocumentWriterHost
     protected function applyPatch($plan)
     {
         if (is_null($this->patchApplier)) {
-            $this->patchApplier = new Patch\PatchApplier($this->pdo, $this->table_xml, $this->doc_id, $this->positions(), $this->writer());
+            $this->patchApplier = new Patch\PatchApplier($this->pdo, $this->tableXml, $this->docId, $this->positions(), $this->writer());
         }
 
         $this->patchApplier->apply($plan);
@@ -928,20 +928,20 @@ class Document implements Interfaces\DocumentWriterHost
 
     // {{{ deleteNode
     /**
-     * @param $node_id
+     * @param $nodeId
      *
      * @return bool
      */
-    public function deleteNode($node_id)
+    public function deleteNode($nodeId)
     {
         $dth = $this->getDoctypeHandler();
 
-        if (!$dth->isAllowedDelete($node_id)) {
+        if (!$dth->isAllowedDelete($nodeId)) {
             return false;
         }
 
-        return $this->inTransaction(function () use ($node_id) {
-            $success = $this->writer()->deleteNode($node_id);
+        return $this->inTransaction(function () use ($nodeId) {
+            $success = $this->writer()->deleteNode($nodeId);
 
             $this->updateLastChange();
 
@@ -1020,25 +1020,25 @@ class Document implements Interfaces\DocumentWriterHost
      * adds a node to the child list of a node
      *
      * @param $node (\DomNode) node to add
-     * @param $target_id (int) db-id of the node to add the node to
+     * @param $targetId (int) db-id of the node to add the node to
      * @param $targetIndex (int) index the node gets in the child list of
-     *        $target_id, -1 appends it
+     *        $targetId, -1 appends it
      * @param $extras (array) additional data for the doctype handler
      *
      * @return (int|false) db-id of the added node, false if it was not added
      */
-    public function addNode(\DomNode $node, $target_id, $targetIndex = -1, $extras = [])
+    public function addNode(\DomNode $node, $targetId, $targetIndex = -1, $extras = [])
     {
         $dth = $this->getDoctypeHandler();
 
-        if (!$dth->isAllowedAdd($node, $target_id)) {
+        if (!$dth->isAllowedAdd($node, $targetId)) {
             return false;
         }
 
-        $dth->onAddNode($node, $target_id, $targetIndex, $extras);
+        $dth->onAddNode($node, $targetId, $targetIndex, $extras);
 
         return $this->inTransaction(
-            fn() => $this->saveNodeIn($node, $target_id, $targetIndex, true)
+            fn() => $this->saveNodeIn($node, $targetId, $targetIndex, true)
         );
     }
     // }}}
@@ -1048,16 +1048,16 @@ class Document implements Interfaces\DocumentWriterHost
      * them to the child list of a node
      *
      * @param $name (string) name of the node to create
-     * @param $target_id (int) db-id of the node to add the node to
+     * @param $targetId (int) db-id of the node to add the node to
      * @param $targetIndex (int) index the first new node gets in the child
-     *        list of $target_id, the other ones are added behind it, -1
+     *        list of $targetId, the other ones are added behind it, -1
      *        appends all of them
      * @param $extras (array) additional data for the doctype handler
      *
      * @return (int|false) db-id of the last node that was added, false if
      *         the nodes were not added
      */
-    public function addNodeByName($name, $target_id, $targetIndex, $extras = [])
+    public function addNodeByName($name, $targetId, $targetIndex, $extras = [])
     {
         $dth = $this->getDoctypeHandler();
         $newNodes = $dth->getNewNodeFor($name);
@@ -1075,7 +1075,7 @@ class Document implements Interfaces\DocumentWriterHost
                 continue;
             }
 
-            if (!$dth->isAllowedAdd($node, $target_id)) {
+            if (!$dth->isAllowedAdd($node, $targetId)) {
                 return false;
             }
 
@@ -1088,11 +1088,11 @@ class Document implements Interfaces\DocumentWriterHost
         // them in. this is read before the adds open their own
         // transactions, the doctype handler hooks of addNode have to run
         // outside of a transaction
-        $targetIndex = $this->positions()->normalizeIndex($target_id, $targetIndex);
+        $targetIndex = $this->positions()->normalizeIndex($targetId, $targetIndex);
 
         $success = false;
         foreach ($nodes as $index => $node) {
-            $added = $this->addNode($node, $target_id, $targetIndex + $index, $extras);
+            $added = $this->addNode($node, $targetId, $targetIndex + $index, $extras);
 
             if ($added === false) {
                 break;
@@ -1110,24 +1110,24 @@ class Document implements Interfaces\DocumentWriterHost
      * replaces a node in database
      *
      * @param    $node (domxmlnode) node to save
-     * @param    $id_to_replace (int) db-id of node to be replaced
-     * @param    $this->doc_id (int) document db-id
+     * @param    $idToReplace (int) db-id of node to be replaced
+     * @param    $this->docId (int) document db-id
      *
-     * @return    $changed_ids (array) list of db-ids that has been changed
+     * @return    $changedIds (array) list of db-ids that has been changed
      */
-    public function replaceNode($node, $id_to_replace)
+    public function replaceNode($node, $idToReplace)
     {
-        return $this->inTransaction(function () use ($node, $id_to_replace) {
-            $target_id = $this->getParentIdById($id_to_replace);
-            $targetIndex = $this->getIndexById($id_to_replace);
+        return $this->inTransaction(function () use ($node, $idToReplace) {
+            $targetId = $this->getParentIdById($idToReplace);
+            $targetIndex = $this->getIndexById($idToReplace);
 
-            $this->writer()->deleteNode($id_to_replace);
+            $this->writer()->deleteNode($idToReplace);
 
-            $changed_ids = [];
-            $changed_ids[] = $this->saveNodeIn($node, $target_id, $targetIndex, true);
-            $changed_ids[] = $target_id;
+            $changedIds = [];
+            $changedIds[] = $this->saveNodeIn($node, $targetId, $targetIndex, true);
+            $changedIds[] = $targetId;
 
-            return $changed_ids;
+            return $changedIds;
         });
     }
     // }}}
@@ -1137,32 +1137,32 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @TODO behaviour should differ according to tree type - don't usually want to copy all sub nodes
      *
-     * @param $node_id (int) db-id of node
+     * @param $nodeId (int) db-id of node
      *
      * @return $success (bool)
      */
-    public function duplicateNode($node_id, $recursive = false)
+    public function duplicateNode($nodeId, $recursive = false)
     {
         // get parent and position for new node
-        $target_id = $this->getParentIdById($node_id);
-        $targetIndex = $this->getIndexById($node_id) + 1;
+        $targetId = $this->getParentIdById($nodeId);
+        $targetIndex = $this->getIndexById($nodeId) + 1;
         $dth = $this->getDoctypeHandler();
 
-        if (!$dth->isAllowedMove($node_id, $target_id)) {
+        if (!$dth->isAllowedMove($nodeId, $targetId)) {
             return false;
         }
 
-        $xmlDoc = $this->getSubdocByNodeId($node_id, false);
+        $xmlDoc = $this->getSubdocByNodeId($nodeId, false);
 
         $this->clearCache();
 
-        $copy_id = $this->inTransaction(
-            fn() => $this->saveNodeIn($xmlDoc, $target_id, $targetIndex, $recursive)
+        $copyId = $this->inTransaction(
+            fn() => $this->saveNodeIn($xmlDoc, $targetId, $targetIndex, $recursive)
         );
 
-        $dth->onCopyNode($node_id, $copy_id);
+        $dth->onCopyNode($nodeId, $copyId);
 
-        return $copy_id;
+        return $copyId;
     }
     // }}}
 
@@ -1170,46 +1170,46 @@ class Document implements Interfaces\DocumentWriterHost
     /**
      * moves a node to a position in the child list of another node
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target (parent) node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of target (parent) node
      * @param    $targetIndex (int) index the node gets in the child list of
-     *           $target_id, -1 appends it
+     *           $targetId, -1 appends it
      *
      * @return   (int|false) id of the old parent node, false if the node
      *         was not moved
      */
-    public function moveNode($node_id, $target_id, $targetIndex)
+    public function moveNode($nodeId, $targetId, $targetIndex)
     {
-        return $this->moveNodeChecked($node_id, $target_id, fn() => $targetIndex);
+        return $this->moveNodeChecked($nodeId, $targetId, fn() => $targetIndex);
     }
     // }}}
     // {{{ moveNodeIn
     /**
      * moves node to another node (append child)
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of target node
      */
-    public function moveNodeIn($node_id, $target_id)
+    public function moveNodeIn($nodeId, $targetId)
     {
-        return $this->moveNodeChecked($node_id, $target_id, fn() => -1);
+        return $this->moveNodeChecked($nodeId, $targetId, fn() => -1);
     }
     // }}}
     // {{{ moveNodeBefore
     /**
      * moves node before another node (insert before)
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of target node
      */
-    public function moveNodeBefore($node_id, $target_id)
+    public function moveNodeBefore($nodeId, $targetId)
     {
-        $target_parent_id = $this->getParentIdById($target_id);
+        $targetParentId = $this->getParentIdById($targetId);
 
         return $this->moveNodeChecked(
-            $node_id,
-            $target_parent_id,
-            fn() => $this->indexToMoveTo($node_id, $target_id)
+            $nodeId,
+            $targetParentId,
+            fn() => $this->indexToMoveTo($nodeId, $targetId)
         );
     }
     // }}}
@@ -1217,17 +1217,17 @@ class Document implements Interfaces\DocumentWriterHost
     /**
      * moves node after another node
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of target node
      */
-    public function moveNodeAfter($node_id, $target_id)
+    public function moveNodeAfter($nodeId, $targetId)
     {
-        $target_parent_id = $this->getParentIdById($target_id);
+        $targetParentId = $this->getParentIdById($targetId);
 
         return $this->moveNodeChecked(
-            $node_id,
-            $target_parent_id,
-            fn() => $this->indexToMoveTo($node_id, $target_id) + 1
+            $nodeId,
+            $targetParentId,
+            fn() => $this->indexToMoveTo($nodeId, $targetId) + 1
         );
     }
     // }}}
@@ -1238,21 +1238,21 @@ class Document implements Interfaces\DocumentWriterHost
      * child list without the node that is moved, so moving a node that
      * sits in front of the target shifts the target up by one
      *
-     * @param    $node_id (int) db-id of the node to move
-     * @param    $target_id (int) db-id of the sibling to move to
+     * @param    $nodeId (int) db-id of the node to move
+     * @param    $targetId (int) db-id of the sibling to move to
      * @param    $offset (int) positions to move behind the sibling
      *
      * @return   (int) index to move the node to
      */
-    private function indexToMoveTo($node_id, $target_id, $offset = 0)
+    private function indexToMoveTo($nodeId, $targetId, $offset = 0)
     {
-        $targetIndex = (int) $this->getIndexById($target_id);
-        $node_index = $this->getIndexById($node_id);
+        $targetIndex = (int) $this->getIndexById($targetId);
+        $nodeIndex = $this->getIndexById($nodeId);
 
         if (
-            $node_index !== false
-            && $this->getParentIdById($node_id) == $this->getParentIdById($target_id)
-            && $node_index < $targetIndex
+            $nodeIndex !== false
+            && $this->getParentIdById($nodeId) == $this->getParentIdById($targetId)
+            && $nodeIndex < $targetIndex
         ) {
             $targetIndex--;
         }
@@ -1266,28 +1266,28 @@ class Document implements Interfaces\DocumentWriterHost
      * variants differ only in how they compute the index to move to,
      * $getIndex resolves it inside the transaction
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of the target (parent) node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of the target (parent) node
      * @param    $getIndex (callable) resolves the index to move to
      *
      * @return   (int|false) id of the old parent node, false if the node
      *         was not moved
      */
-    protected function moveNodeChecked($node_id, $target_id, callable $getIndex)
+    protected function moveNodeChecked($nodeId, $targetId, callable $getIndex)
     {
         $dth = $this->getDoctypeHandler();
 
         if (
-            $node_id !== $target_id
-            && $dth->isAllowedMove($node_id, $target_id)
+            $nodeId !== $targetId
+            && $dth->isAllowedMove($nodeId, $targetId)
         ) {
-            $parent_id = $this->inTransaction(
-                fn() => $this->writer()->moveNode($node_id, $target_id, $getIndex())
+            $parentId = $this->inTransaction(
+                fn() => $this->writer()->moveNode($nodeId, $targetId, $getIndex())
             );
 
-            $dth->onMoveNode($node_id, $parent_id);
+            $dth->onMoveNode($nodeId, $parentId);
 
-            return $parent_id;
+            return $parentId;
         }
 
         return false;
@@ -1298,28 +1298,28 @@ class Document implements Interfaces\DocumentWriterHost
     /**
      * copies a node to a position in the child list of another node
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target (parent) node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of target (parent) node
      * @param    $targetIndex (int) index the copy gets in the child list of
-     *           $target_id, -1 appends it
+     *           $targetId, -1 appends it
      *
      * @return   (int|false) id of the copy, false if the node was not copied
      */
-    public function copyNode($node_id, $target_id, $targetIndex)
+    public function copyNode($nodeId, $targetId, $targetIndex)
     {
-        return $this->copyNodeChecked($node_id, $target_id, fn() => $targetIndex);
+        return $this->copyNodeChecked($nodeId, $targetId, fn() => $targetIndex);
     }
     // }}}
     // {{{ copyNodeIn
     /**
      * copy node to another node
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of target node
      */
-    public function copyNodeIn($node_id, $target_id)
+    public function copyNodeIn($nodeId, $targetId)
     {
-        return $this->copyNodeChecked($node_id, $target_id, fn() => -1);
+        return $this->copyNodeChecked($nodeId, $targetId, fn() => -1);
     }
     // }}}
     // {{{ copyNodeBefore
@@ -1330,15 +1330,15 @@ class Document implements Interfaces\DocumentWriterHost
      * is the plain index of the target node, it is not shifted by the move
      * like it is in moveNodeBefore)
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of target node
      */
-    public function copyNodeBefore($node_id, $target_id)
+    public function copyNodeBefore($nodeId, $targetId)
     {
         return $this->copyNodeChecked(
-            $node_id,
-            $this->getParentIdById($target_id),
-            fn() => $this->getIndexById($target_id)
+            $nodeId,
+            $this->getParentIdById($targetId),
+            fn() => $this->getIndexById($targetId)
         );
     }
     // }}}
@@ -1346,15 +1346,15 @@ class Document implements Interfaces\DocumentWriterHost
     /**
      * copy node after another node
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of target node
      */
-    public function copyNodeAfter($node_id, $target_id)
+    public function copyNodeAfter($nodeId, $targetId)
     {
         return $this->copyNodeChecked(
-            $node_id,
-            $this->getParentIdById($target_id),
-            fn() => $this->getIndexById($target_id) + 1
+            $nodeId,
+            $this->getParentIdById($targetId),
+            fn() => $this->getIndexById($targetId) + 1
         );
     }
     // }}}
@@ -1364,24 +1364,24 @@ class Document implements Interfaces\DocumentWriterHost
      * variants differ only in how they compute the index to copy to,
      * $getIndex resolves it inside the transaction
      *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of the target (parent) node
+     * @param    $nodeId (int) db-id of node
+     * @param    $targetId (int) db-id of the target (parent) node
      * @param    $getIndex (callable) resolves the index to copy to
      *
      * @return   (int|false) id of the copy, false if it was not made
      */
-    protected function copyNodeChecked($node_id, $target_id, callable $getIndex)
+    protected function copyNodeChecked($nodeId, $targetId, callable $getIndex)
     {
         $dth = $this->getDoctypeHandler();
 
-        if ($dth->isAllowedCopy($node_id, $target_id)) {
-            $copy_id = $this->inTransaction(
-                fn() => $this->writer()->copyNode($node_id, $target_id, $getIndex())
+        if ($dth->isAllowedCopy($nodeId, $targetId)) {
+            $copyId = $this->inTransaction(
+                fn() => $this->writer()->copyNode($nodeId, $targetId, $getIndex())
             );
 
-            $dth->onCopyNode($node_id, $copy_id);
+            $dth->onCopyNode($nodeId, $copyId);
 
-            return $copy_id;
+            return $copyId;
         }
 
         return false;
@@ -1392,29 +1392,29 @@ class Document implements Interfaces\DocumentWriterHost
     /**
      * sets attribute of node
      *
-     * @param    $node_id (int) db-id of node to set attribute
-     * @param    $attr_name (string) name of attribute
-     * @param    $attr_value (string) new value of attribute
+     * @param    $nodeId (int) db-id of node to set attribute
+     * @param    $attrName (string) name of attribute
+     * @param    $attrValue (string) new value of attribute
      */
-    public function setAttribute($node_id, $attr_name, $attr_value)
+    public function setAttribute($nodeId, $attrName, $attrValue)
     {
-        return $this->inTransaction(function () use ($node_id, $attr_name, $attr_value) {
-            $attributes = $this->getAttributes($node_id);
+        return $this->inTransaction(function () use ($nodeId, $attrName, $attrValue) {
+            $attributes = $this->getAttributes($nodeId);
 
             if (
                 (
-                    isset($attributes[$attr_name])
-                    && $attributes[$attr_name] !== htmlspecialchars($attr_value)
+                    isset($attributes[$attrName])
+                    && $attributes[$attrName] !== htmlspecialchars($attrValue)
                 )
-                || !isset($attributes[$attr_name])
+                || !isset($attributes[$attrName])
             ) {
                 $dth = $this->getDoctypeHandler();
 
-                $dth->onSetAttribute($node_id, $attr_name, $attributes[$attr_name] ?? null, $attr_value);
+                $dth->onSetAttribute($nodeId, $attrName, $attributes[$attrName] ?? null, $attrValue);
 
-                $attributes[$attr_name] = $attr_value;
+                $attributes[$attrName] = $attrValue;
 
-                return $this->writer()->saveAttributes($node_id, $attributes);
+                return $this->writer()->saveAttributes($nodeId, $attributes);
             }
 
             return false;
@@ -1425,18 +1425,18 @@ class Document implements Interfaces\DocumentWriterHost
     /**
      * removes an attribute of a node
      *
-     * @param    $node_id (int) db-id of node to set attribute
-     * @param    $attr_name (string) name of attribute
+     * @param    $nodeId (int) db-id of node to set attribute
+     * @param    $attrName (string) name of attribute
      */
-    public function removeAttribute($node_id, $attr_name)
+    public function removeAttribute($nodeId, $attrName)
     {
-        return $this->inTransaction(function () use ($node_id, $attr_name) {
-            $attributes = $this->getAttributes($node_id);
+        return $this->inTransaction(function () use ($nodeId, $attrName) {
+            $attributes = $this->getAttributes($nodeId);
 
-            if (isset($attributes[$attr_name])) {
-                unset($attributes[$attr_name]);
+            if (isset($attributes[$attrName])) {
+                unset($attributes[$attrName]);
 
-                return $this->writer()->saveAttributes($node_id, $attributes);
+                return $this->writer()->saveAttributes($nodeId, $attributes);
             }
 
             return false;
@@ -1448,16 +1448,16 @@ class Document implements Interfaces\DocumentWriterHost
     /**
      * recursively remove attributes from node
      */
-    public static function removeNodeAttr($node, $db_ns, $attribute)
+    public static function removeNodeAttr($node, $dbNs, $attribute)
     {
         if ($node->nodeType == XML_ELEMENT_NODE || $node->nodeType == XML_DOCUMENT_NODE) {
             [$xml, $node] = \Depage\Xml\Document::getDocAndNode($node);
 
             $xpath = new \DOMXPath($xml);
-            $xpath->registerNamespace($db_ns->ns, $db_ns->uri);
-            $xp_result = $xpath->query(".//@{$db_ns->ns}:{$attribute}", $node);
+            $xpath->registerNamespace($dbNs->ns, $dbNs->uri);
+            $xpResult = $xpath->query(".//@{$dbNs->ns}:{$attribute}", $node);
 
-            foreach ($xp_result as $node) {
+            foreach ($xpResult as $node) {
                 $node->parentNode->removeAttributeNode($node);
             }
         }
@@ -1480,10 +1480,10 @@ class Document implements Interfaces\DocumentWriterHost
         $doc->appendChild($rootNode);
 
         self::removeIdAttr($rootNode);
-        self::removeNodeAttr($rootNode, $this->db_ns, 'lastchange');
-        self::removeNodeAttr($rootNode, $this->db_ns, 'lastchangeUid');
-        self::removeNodeAttr($rootNode, $this->db_ns, 'docid');
-        self::removeNodeAttr($rootNode, $this->db_ns, 'released');
+        self::removeNodeAttr($rootNode, $this->dbNs, 'lastchange');
+        self::removeNodeAttr($rootNode, $this->dbNs, 'lastchangeUid');
+        self::removeNodeAttr($rootNode, $this->dbNs, 'docid');
+        self::removeNodeAttr($rootNode, $this->dbNs, 'released');
 
         return hash("sha256", $doc->saveXML());
     }
@@ -1496,7 +1496,7 @@ class Document implements Interfaces\DocumentWriterHost
      */
     protected function getFreeNodeIds($preference = [])
     {
-        $this->free_element_ids = $this->writer()->getFreeNodeIds($preference);
+        $this->freeElementIds = $this->writer()->getFreeNodeIds($preference);
     }
     // }}}
     // {{{ addChildnodesByQuery
@@ -1530,8 +1530,8 @@ class Document implements Interfaces\DocumentWriterHost
                     }
 
                     //add lastchange-data
-                    $node->setAttributeNS($this->db_ns->uri, "{$this->db_ns->ns}:lastchange", $this->lastchange);
-                    $node->setAttributeNS($this->db_ns->uri, "{$this->db_ns->ns}:lastchangeUid", $this->lastchangeUid ?? '');
+                    $node->setAttributeNS($this->dbNs->uri, "{$this->dbNs->ns}:lastchange", $this->lastchange);
+                    $node->setAttributeNS($this->dbNs->uri, "{$this->dbNs->ns}:lastchangeUid", $this->lastchangeUid ?? '');
                 }
 
                 //add attributes to node
@@ -1544,7 +1544,7 @@ class Document implements Interfaces\DocumentWriterHost
                 }
 
                 //add id_attribute to node
-                $node->setAttributeNS($this->db_ns->uri, "{$this->db_ns->ns}:{$this->id_attribute}", $row->id);
+                $node->setAttributeNS($this->dbNs->uri, "{$this->dbNs->ns}:{$this->idAttribute}", $row->id);
 
                 //get TEXT_NODES
             } elseif ($row->type == 'TEXT_NODE') {
@@ -1589,13 +1589,13 @@ class Document implements Interfaces\DocumentWriterHost
      * list of a node, i.e. the number of children it has now; this is the
      * index -1 as targetIndex stands for
      *
-     * @param $target_id (int) db-id of parent node
+     * @param $targetId (int) db-id of parent node
      *
      * @return (int) index of an appended child
      */
-    protected function getAppendIndex($target_id)
+    protected function getAppendIndex($targetId)
     {
-        return $this->positions()->appendIndex($target_id);
+        return $this->positions()->appendIndex($targetId);
     }
     // }}}
 
@@ -1623,10 +1623,10 @@ class Document implements Interfaces\DocumentWriterHost
         $namespaces = [];
         $pName = '([a-zA-Z0-9]*)';
         $pAttr = '([^"]*)';
-        preg_match_all("/xmlns:$pName=\"$pAttr\"/", $str, $ns_elements, PREG_SET_ORDER);
+        preg_match_all("/xmlns:$pName=\"$pAttr\"/", $str, $nsElements, PREG_SET_ORDER);
 
-        foreach ($ns_elements as $ns_element) {
-            $namespaces[$ns_element[1]] = new XmlNs($ns_element[1], $ns_element[2]);
+        foreach ($nsElements as $nsElement) {
+            $namespaces[$nsElement[1]] = new XmlNs($nsElement[1], $nsElement[2]);
         }
 
         return $namespaces;
@@ -1644,30 +1644,30 @@ class Document implements Interfaces\DocumentWriterHost
      * saves a node into the child list of a target node
      *
      * @param $node (domxmlnode) node to save
-     * @param $target_id (int) db-id of the node to save the node in
+     * @param $targetId (int) db-id of the node to save the node in
      * @param $targetIndex (int) index the node gets in the child list of
-     *        $target_id, -1 appends it
-     * @param $inc_children (bool) whether to save the child nodes too
+     *        $targetId, -1 appends it
+     * @param $incChildren (bool) whether to save the child nodes too
      */
-    protected function saveNodeIn($node, $target_id, $targetIndex, $inc_children)
+    protected function saveNodeIn($node, $targetId, $targetIndex, $incChildren)
     {
-        return $this->writer()->saveNodeIn($node, $target_id, $targetIndex, $inc_children);
+        return $this->writer()->saveNodeIn($node, $targetId, $targetIndex, $incChildren);
     }
     // }}}
     // {{{ getNodeArrayForSaving
     /**
      * gets all nodes of a document in one array
      *
-     * @param    $node_array (array) list of nodes to add current node to
+     * @param    $nodeArray (array) list of nodes to add current node to
      * @param    $node (domxmlnode) current node
-     * @param    $parent_index (int) index of parent node in created node list
+     * @param    $parentIndex (int) index of parent node in created node list
      * @param    $pos (int) position of current node
      * @param    $stripwhitespace (bool) whether to strip whitespace from
      *           textnodes while saving
      */
-    protected function getNodeArrayForSaving(&$node_array, $node, $parent_index = null, $pos = 0, $stripwhitespace = true)
+    protected function getNodeArrayForSaving(&$nodeArray, $node, $parentIndex = null, $pos = 0, $stripwhitespace = true)
     {
-        return $this->writer()->getNodeArrayForSaving($node_array, $node, $parent_index, $pos, $stripwhitespace);
+        return $this->writer()->getNodeArrayForSaving($nodeArray, $node, $parentIndex, $pos, $stripwhitespace);
     }
     // }}}
     // {{{ saveNodeToDb
@@ -1676,17 +1676,17 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param    $node (domxmlnode) node to save
      * @param    $id (int) db-id to save node in
-     * @param    $target_id (int) db-id of parent node
+     * @param    $targetId (int) db-id of parent node
      * @param    $targetIndex (int) index the node gets in the child list of
-     *           $target_id, -1 appends it
-     * @param    $set_position (bool) whether to give the node a position in
+     *           $targetId, -1 appends it
+     * @param    $setPosition (bool) whether to give the node a position in
      *           the child list of the target node
      *
      * @return    $id (int) db-id under which node has been saved
      */
-    protected function saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position = false)
+    protected function saveNodeToDb($node, $id, $targetId, $targetIndex, $setPosition = false)
     {
-        return $this->writer()->saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position);
+        return $this->writer()->saveNodeToDb($node, $id, $targetId, $targetIndex, $setPosition);
     }
     // }}}
     // {{{ inTransaction
@@ -1826,7 +1826,7 @@ class Document implements Interfaces\DocumentWriterHost
         $this->docInfoLoaded = false;
 
         $query = $this->pdo->prepare(
-            "UPDATE {$this->table_docs}
+            "UPDATE {$this->tableDocs}
             SET
                 lastchange=:timestamp,
                 lastchange_uid=IFNULL(:user_id, lastchange_uid)
@@ -1841,17 +1841,17 @@ class Document implements Interfaces\DocumentWriterHost
         }
 
         if (!empty($uid)) {
-            $user_id = $uid;
+            $userId = $uid;
         } elseif (!empty($this->xmlDb->options['userId'])) {
-            $user_id = $this->xmlDb->options['userId'];
+            $userId = $this->xmlDb->options['userId'];
         } else {
-            $user_id = null;
+            $userId = null;
         }
 
         $params = [
             'doc_id' => $this->getDocId(),
             'timestamp' => date('Y-m-d H:i:s', $timestamp),
-            'user_id' => $user_id,
+            'user_id' => $userId,
         ];
 
         return ($query->execute($params)) ? $timestamp : false;
@@ -1872,7 +1872,7 @@ class Document implements Interfaces\DocumentWriterHost
     protected function refreshSubhashes()
     {
         if (is_null($this->subhashUpdater)) {
-            $this->subhashUpdater = new Helpers\SubhashUpdater($this->pdo, $this->table_xml, $this->doc_id, self::SORTKEY_PAD, self::SAVE_BATCH_SIZE);
+            $this->subhashUpdater = new Helpers\SubhashUpdater($this->pdo, $this->tableXml, $this->docId, self::SORTKEY_PAD, self::SAVE_BATCH_SIZE);
         }
 
         $this->subhashUpdater->refresh();
@@ -1889,8 +1889,8 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function clearCache()
     {
-        if (!is_null($this->doc_id)) {
-            $this->cache->delete(Helpers\CacheKey::forDocument($this->table_docs, $this->doc_id));
+        if (!is_null($this->docId)) {
+            $this->cache->delete(Helpers\CacheKey::forDocument($this->tableDocs, $this->docId));
         }
     }
     // }}}

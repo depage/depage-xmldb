@@ -265,12 +265,12 @@ class Base implements DoctypeInterface
     /**
      * called when a node is copied
      *
-     * @param   int  $node_id  db-id of the node that was copied
-     * @param   int  $copy_id  db-id of the copy
+     * @param   int  $nodeId  db-id of the node that was copied
+     * @param   int  $copyId  db-id of the copy
      *
      * @return  bool  true if the copy is valid
      */
-    public function onCopyNode($node_id, $copy_id)
+    public function onCopyNode($nodeId, $copyId)
     {
         return true;
     }
@@ -280,12 +280,12 @@ class Base implements DoctypeInterface
     /**
      * called when a node is moved
      *
-     * @param   int  $node_id      db-id of the node that was moved
+     * @param   int  $nodeId      db-id of the node that was moved
      * @param   int  $oldParentId  db-id of the former parent node
      *
      * @return  bool  true if the new position is valid
      */
-    public function onMoveNode($node_id, $oldParentId)
+    public function onMoveNode($nodeId, $oldParentId)
     {
         return true;
     }
@@ -295,12 +295,12 @@ class Base implements DoctypeInterface
     /**
      * called when a node is deleted
      *
-     * @param   int  $node_id    db-id of the deleted node
-     * @param   int  $parent_id  db-id of the former parent node
+     * @param   int  $nodeId    db-id of the deleted node
+     * @param   int  $parentId  db-id of the former parent node
      *
      * @return  bool  true if the deletion is valid
      */
-    public function onDeleteNode($node_id, $parent_id)
+    public function onDeleteNode($nodeId, $parentId)
     {
         return true;
     }

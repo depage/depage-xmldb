@@ -71,14 +71,14 @@ class TargetIndexTest extends XmlDbTestCase
     /**
      * the db-ids of the children of a node in document order
      */
-    protected function getChildIds($parent_id = self::PARENT_ID): array
+    protected function getChildIds($parentId = self::PARENT_ID): array
     {
         $query = $this->pdo->prepare(
             "SELECT id FROM {$this->xmlTree}
             WHERE id_doc = 5 AND id_parent = ?
             ORDER BY pos ASC, id ASC"
         );
-        $query->execute([$parent_id]);
+        $query->execute([$parentId]);
 
         return array_map('intval', $query->fetchAll(\PDO::FETCH_COLUMN));
     }
@@ -88,14 +88,14 @@ class TargetIndexTest extends XmlDbTestCase
     /**
      * the name attribute of every child of a node in document order
      */
-    protected function getNamesOfChildren($parent_id = self::PARENT_ID): array
+    protected function getNamesOfChildren($parentId = self::PARENT_ID): array
     {
         $query = $this->pdo->prepare(
             "SELECT value FROM {$this->xmlTree}
             WHERE id_doc = 5 AND id_parent = ?
             ORDER BY pos ASC, id ASC"
         );
-        $query->execute([$parent_id]);
+        $query->execute([$parentId]);
 
         $names = [];
         foreach ($query->fetchAll(\PDO::FETCH_COLUMN) as $value) {
@@ -208,7 +208,7 @@ class TargetIndexTest extends XmlDbTestCase
      * leaves the order of the other children alone
      */
     #[DataProvider('provideTargetIndex')]
-    public function testAddNodeInsertsAtTheTargetIndex($targetIndex, $expected_index, $rebalanced)
+    public function testAddNodeInsertsAtTheTargetIndex($targetIndex, $expectedIndex, $rebalanced)
     {
         if ($rebalanced) {
             // the dataset stores its positions dense, as an old version of
@@ -223,8 +223,8 @@ class TargetIndexTest extends XmlDbTestCase
         $children = $this->getChildIds();
 
         $this->assertCount(8, $children);
-        $this->assertSame($expected_index, $this->doc->getIndexById($id));
-        $this->assertSame($expected_index, array_search((int) $id, $children));
+        $this->assertSame($expectedIndex, $this->doc->getIndexById($id));
+        $this->assertSame($expectedIndex, array_search((int) $id, $children));
 
         // the siblings keep their relative order
         $this->assertSame(
@@ -254,7 +254,7 @@ class TargetIndexTest extends XmlDbTestCase
      * the middle of the child list or appended to it
      */
     #[DataProvider('provideTargetIndex')]
-    public function testAddNodeByNameKeepsTheOrderOfTheNewNodes($targetIndex, $expected_index, $rebalanced)
+    public function testAddNodeByNameKeepsTheOrderOfTheNewNodes($targetIndex, $expectedIndex, $rebalanced)
     {
         $this->setMultiNodeDoctypeHandler();
 
@@ -271,8 +271,8 @@ class TargetIndexTest extends XmlDbTestCase
         $this->assertCount(10, $names);
         $this->assertSame(
             ['first', 'second', 'third'],
-            array_slice($names, $expected_index, 3),
-            "the three nodes are not behind each other at index $expected_index: " . implode(',', $names)
+            array_slice($names, $expectedIndex, 3),
+            "the three nodes are not behind each other at index $expectedIndex: " . implode(',', $names)
         );
     }
     // }}}
@@ -359,15 +359,15 @@ class TargetIndexTest extends XmlDbTestCase
      * or into another one
      */
     #[DataProvider('provideMove')]
-    public function testMoveNodeInsertsAtTheTargetIndex($from, $targetIndex, $expected_index)
+    public function testMoveNodeInsertsAtTheTargetIndex($from, $targetIndex, $expectedIndex)
     {
-        $node_id = self::CHILDREN[$from];
+        $nodeId = self::CHILDREN[$from];
 
-        $this->assertSame($from, $this->doc->getIndexById($node_id));
+        $this->assertSame($from, $this->doc->getIndexById($nodeId));
 
-        $this->doc->moveNode($node_id, self::PARENT_ID, $targetIndex);
+        $this->doc->moveNode($nodeId, self::PARENT_ID, $targetIndex);
 
-        $this->assertSame($expected_index, $this->doc->getIndexById($node_id));
+        $this->assertSame($expectedIndex, $this->doc->getIndexById($nodeId));
         $this->assertCount(7, $this->getChildIds());
     }
     // }}}
@@ -449,9 +449,9 @@ class TargetIndexTest extends XmlDbTestCase
      * direction the node moves in
      */
     #[DataProvider('provideMoveAroundSibling')]
-    public function testMoveNodeAroundSibling($method, $node_id, $sibling_id, $expected)
+    public function testMoveNodeAroundSibling($method, $nodeId, $siblingId, $expected)
     {
-        $this->doc->$method($node_id, $sibling_id);
+        $this->doc->$method($nodeId, $siblingId);
 
         $this->assertSame($expected, $this->getChildIds());
     }
@@ -481,13 +481,13 @@ class TargetIndexTest extends XmlDbTestCase
     #[DataProvider('provideCopy')]
     public function testCopyNodeInsertsAtTheTargetIndex($targetIndex, $expected)
     {
-        $copy_id = $this->doc->copyNode(18, self::PARENT_ID, $targetIndex);
+        $copyId = $this->doc->copyNode(18, self::PARENT_ID, $targetIndex);
 
-        $this->assertIsNumeric($copy_id, 'the node was not copied');
+        $this->assertIsNumeric($copyId, 'the node was not copied');
 
         $this->assertSame(
             $expected,
-            $this->markId($this->getChildIds(), $copy_id, '{copy}')
+            $this->markId($this->getChildIds(), $copyId, '{copy}')
         );
     }
     // }}}
@@ -495,13 +495,13 @@ class TargetIndexTest extends XmlDbTestCase
     // {{{ testDuplicateNodeGoesBehindTheOriginal
     public function testDuplicateNodeGoesBehindTheOriginal()
     {
-        $copy_id = $this->doc->duplicateNode(23);
+        $copyId = $this->doc->duplicateNode(23);
 
-        $this->assertIsNumeric($copy_id, 'the node was not duplicated');
-        $this->assertSame(4, $this->doc->getIndexById($copy_id));
+        $this->assertIsNumeric($copyId, 'the node was not duplicated');
+        $this->assertSame(4, $this->doc->getIndexById($copyId));
         $this->assertSame(
             [18, 19, 22, 23, '{copy}', 24, 25, 26],
-            $this->markId($this->getChildIds(), $copy_id, '{copy}')
+            $this->markId($this->getChildIds(), $copyId, '{copy}')
         );
     }
     // }}}
@@ -511,14 +511,14 @@ class TargetIndexTest extends XmlDbTestCase
     {
         $dom = $this->generateDomDocument('<page name="replacement"/>');
 
-        $changed_ids = $this->doc->replaceNode($dom->documentElement, 23);
+        $changedIds = $this->doc->replaceNode($dom->documentElement, 23);
 
         $this->assertNotContains(23, $this->getChildIds());
         $this->assertSame(
             [18, 19, 22, '{new}', 24, 25, 26],
-            $this->markId($this->getChildIds(), $changed_ids[0], '{new}')
+            $this->markId($this->getChildIds(), $changedIds[0], '{new}')
         );
-        $this->assertSame(3, $this->doc->getIndexById($changed_ids[0]));
+        $this->assertSame(3, $this->doc->getIndexById($changedIds[0]));
     }
     // }}}
 

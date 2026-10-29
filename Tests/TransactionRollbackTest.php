@@ -158,7 +158,7 @@ class TransactionRollbackTest extends XmlDbTestCase
         $cache->deletedKeys = [];
         $this->assertTrue($xmlDb->removeDoc('_rollback_test_doc'));
 
-        $this->assertContains("{$xmlDb->table_docs}_d{$docId}/", $cache->deletedKeys);
+        $this->assertContains("{$xmlDb->tableDocs}_d{$docId}/", $cache->deletedKeys);
     }
     // }}}
     // {{{ testDoctypeHandlerMissingClass

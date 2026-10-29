@@ -1561,7 +1561,7 @@ class DocumentTest extends XmlDbTestCase
     {
         $this->doc->getFreeNodeIds([]);
 
-        $this->assertSame([], $this->doc->free_element_ids);
+        $this->assertSame([], $this->doc->freeElementIds);
     }
     // }}}
     // {{{ testGetFreeNodeIdsAfterDeletePreference
@@ -1571,7 +1571,7 @@ class DocumentTest extends XmlDbTestCase
 
         $this->doc->getFreeNodeIds([4, 5, 6]);
 
-        $this->assertEquals([4, 5, 6], $this->doc->free_element_ids);
+        $this->assertEquals([4, 5, 6], $this->doc->freeElementIds);
     }
     // }}}
     // {{{ testGetFreeNodeIdsPreference
@@ -1579,7 +1579,7 @@ class DocumentTest extends XmlDbTestCase
     {
         $this->doc->getFreeNodeIds([4, 5, 6]);
 
-        $this->assertEquals([], $this->doc->free_element_ids);
+        $this->assertEquals([], $this->doc->freeElementIds);
     }
     // }}}
 }

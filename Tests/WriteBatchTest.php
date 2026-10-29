@@ -102,8 +102,8 @@ class WriteBatchTest extends XmlDbTestCase
         // the original 6 nodes (4 pages and their text node) are
         // replaced completely, plus the added paragraphs with their text
         // node and inner element each
-        $expected_nodes = 6 + 3 * $count;
-        $this->assertCount($expected_nodes, $rows);
+        $expectedNodes = 6 + 3 * $count;
+        $this->assertCount($expectedNodes, $rows);
 
         // the document reads back as it was saved, wrong parent/child
         // connections would show up as a different structure here
@@ -134,19 +134,19 @@ class WriteBatchTest extends XmlDbTestCase
         $dom = $this->buildLargeDom(2 * DocumentTestClass::SAVE_BATCH_SIZE + 1, false);
         $this->doc->save($dom);
 
-        $element_ids = fn() => array_keys(array_filter(
+        $elementIds = fn() => array_keys(array_filter(
             $this->getNodeRows(),
             fn($row) => $row['type'] == 'ELEMENT_NODE'
         ));
 
-        $ids_after_first = $element_ids();
-        $this->assertGreaterThan(2 * DocumentTestClass::SAVE_BATCH_SIZE, count($ids_after_first));
+        $idsAfterFirst = $elementIds();
+        $this->assertGreaterThan(2 * DocumentTestClass::SAVE_BATCH_SIZE, count($idsAfterFirst));
 
         $reload = new \Depage\Xml\Document();
         $reload->loadXML($this->doc->getXml(true));
         $this->doc->save($reload);
 
-        $this->assertSame($ids_after_first, $element_ids());
+        $this->assertSame($idsAfterFirst, $elementIds());
     }
     // }}}
     // {{{ testSaveSetsDbIdAttributesOnBatchedNodes
@@ -162,14 +162,14 @@ class WriteBatchTest extends XmlDbTestCase
         $rows = $this->getNodeRows();
 
         $checked = 0;
-        $attr_list = [];
+        $attrList = [];
         $attributes = (new \DOMXPath($dom))->query('//@db:id');
         foreach ($attributes as $attribute) {
-            $attr_list[] = [$attribute->nodeValue, $attribute->parentNode];
+            $attrList[] = [$attribute->nodeValue, $attribute->parentNode];
         }
-        $this->assertGreaterThan(2 * DocumentTestClass::SAVE_BATCH_SIZE, count($attr_list));
+        $this->assertGreaterThan(2 * DocumentTestClass::SAVE_BATCH_SIZE, count($attrList));
 
-        foreach ($attr_list as [$id, $element]) {
+        foreach ($attrList as [$id, $element]) {
             $this->assertArrayHasKey((int) $id, $rows, "db:id {$id} refers to a node that is not in the database");
             $this->assertSame(
                 str_replace($element->prefix . ':', '', $element->nodeName),

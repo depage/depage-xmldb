@@ -20,13 +20,13 @@ class XmlDb implements Interfaces\XmlGetter
     // {{{ variables
     public $pdo;
     protected $cache;
-    protected $db_ns;
+    protected $dbNs;
 
-    protected $table_prefix = 'dp_';
-    protected $table_docs;
-    protected $table_xml;
+    protected $tablePrefix = 'dp_';
+    protected $tableDocs;
+    protected $tableXml;
 
-    protected $doc_ids = [];
+    protected $docIds = [];
 
     protected $transactions = 0;
     protected $alteringTransaction;
@@ -37,13 +37,13 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * creates an instance of the xmlDb
      *
-     * @param $table_prefix (string) prefix of the tables of the library
+     * @param $tablePrefix (string) prefix of the tables of the library
      * @param $pdo (Depage\Db\Pdo) database connection
      * @param $cache (Depage\Cache\Cache) cache instance
      * @param $options (array) options of the instance, the option "userId"
      *        is used as the id of the user that changes the documents
      */
-    public function __construct($table_prefix, $pdo, $cache, $options = [])
+    public function __construct($tablePrefix, $pdo, $cache, $options = [])
     {
         $this->pdo = $pdo;
         $this->pdo->setAttribute(\PDO::ATTR_ORACLE_NULLS, \PDO::NULL_NATURAL);
@@ -52,11 +52,11 @@ class XmlDb implements Interfaces\XmlGetter
 
         $this->options = $options;
 
-        $this->db_ns = new XmlNs('db', 'http://cms.depagecms.net/ns/database');
+        $this->dbNs = new XmlNs('db', 'http://cms.depagecms.net/ns/database');
 
-        $this->table_prefix = $table_prefix;
-        $this->table_docs = $table_prefix . '_xmldocs';
-        $this->table_xml = $table_prefix . '_xmltree';
+        $this->tablePrefix = $tablePrefix;
+        $this->tableDocs = $tablePrefix . '_xmldocs';
+        $this->tableXml = $tablePrefix . '_xmltree';
     }
     // }}}
 
@@ -79,20 +79,20 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * gets the doc-id of a xml-document by name or id and checks if the document exists
      *
-     * @param     $doc_id_or_name (mixed) id or name of the document
+     * @param     $docIdOrName (mixed) id or name of the document
      *
      * @return    (int) id of the document or false when document does not exist
      */
-    public function docExists($doc_id_or_name)
+    public function docExists($docIdOrName)
     {
-        if (!isset($this->doc_ids[$doc_id_or_name])) {
-            if ((int) $doc_id_or_name > 0) {
-                $id = (int) $doc_id_or_name;
+        if (!isset($this->docIds[$docIdOrName])) {
+            if ((int) $docIdOrName > 0) {
+                $id = (int) $docIdOrName;
 
                 // is already a doc-id
                 $query = $this->pdo->prepare(
                     "SELECT docs.name AS docname
-                    FROM {$this->table_docs} AS docs
+                    FROM {$this->tableDocs} AS docs
                     WHERE docs.id = :doc_id"
                 );
                 $query->execute([
@@ -107,22 +107,22 @@ class XmlDb implements Interfaces\XmlGetter
 
                 $name = $result->docname;
             } else {
-                $name = $doc_id_or_name;
-                $doc_list = $this->getDocuments($name);
+                $name = $docIdOrName;
+                $docList = $this->getDocuments($name);
 
-                if (!isset($doc_list[$name])) {
+                if (!isset($docList[$name])) {
                     // document does not exist
                     return false;
                 }
 
-                $id = $doc_list[$name]->getDocId();
+                $id = $docList[$name]->getDocId();
             }
 
-            $this->doc_ids[$id] = $id;
-            $this->doc_ids[$name] = $id;
+            $this->docIds[$id] = $id;
+            $this->docIds[$name] = $id;
         }
 
-        return $this->doc_ids[$doc_id_or_name];
+        return $this->docIds[$docIdOrName];
     }
     // }}}
 
@@ -142,15 +142,15 @@ class XmlDb implements Interfaces\XmlGetter
 
         $namequery = '';
         $where = [];
-        $query_param = [];
+        $queryParam = [];
 
         if ($name) {
             $where[] = 'name = :name';
-            $query_param['name'] = $name;
+            $queryParam['name'] = $name;
         }
         if ($type) {
             $where[] = 'type = :type';
-            $query_param['type'] = $type;
+            $queryParam['type'] = $type;
         }
         if (count($where) > 0) {
             $namequery = "WHERE " . implode(" AND ", $where);
@@ -163,12 +163,12 @@ class XmlDb implements Interfaces\XmlGetter
                 docs.id AS id,
                 docs.rootid AS rootid,
                 docs.type AS type
-            FROM {$this->table_docs} AS docs
+            FROM {$this->tableDocs} AS docs
                 $namequery
             ORDER BY docs.name ASC"
         );
 
-        $query->execute($query_param);
+        $query->execute($queryParam);
 
         while ($doc = $query->fetchObject()) {
             $docs[$doc->name] = new Document($this, $doc->id);
@@ -181,15 +181,15 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * Get xmlDb\document
      *
-     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $docIdOrName (mixed) id or name of the document
      * @return bool|document
      */
-    public function getDoc($doc_id_or_name)
+    public function getDoc($docIdOrName)
     {
         $doc = false;
 
-        if ($doc_id = $this->docExists($doc_id_or_name)) {
-            $doc = new Document($this, $doc_id);
+        if ($docId = $this->docExists($docIdOrName)) {
+            $doc = new Document($this, $docId);
         }
 
         return $doc;
@@ -208,7 +208,7 @@ class XmlDb implements Interfaces\XmlGetter
 
         $query = $this->pdo->prepare(
             "SELECT xml.id_doc AS id_doc
-            FROM {$this->table_xml} AS xml
+            FROM {$this->tableXml} AS xml
             WHERE xml.id = :nodeId"
         );
 
@@ -217,8 +217,8 @@ class XmlDb implements Interfaces\XmlGetter
         ]);
         $result = $query->fetchObject();
 
-        if ($result && $doc_id = $this->docExists($result->id_doc)) {
-            $doc = new Document($this, $doc_id);
+        if ($result && $docId = $this->docExists($result->id_doc)) {
+            $doc = new Document($this, $docId);
         }
 
         return $doc;
@@ -228,12 +228,12 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * @brief getDocInfo
      *
-     * @param mixed $doc_id_or_name
+     * @param mixed $docIdOrName
      * @return void
      **/
-    public function getDocInfo($doc_id_or_name)
+    public function getDocInfo($docIdOrName)
     {
-        if ($doc = $this->getDoc($doc_id_or_name)) {
+        if ($doc = $this->getDoc($docIdOrName)) {
             return $doc->getDocInfo();
         }
 
@@ -245,17 +245,17 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * gets a document as a DOMDocument
      *
-     * @param $doc_id_or_name (mixed) id or name of the document
-     * @param $add_id_attribute (bool) whether to add the db:id attributes
+     * @param $docIdOrName (mixed) id or name of the document
+     * @param $addIdAttribute (bool) whether to add the db:id attributes
      * @return bool|\DOMDocument
      */
-    public function getDocXml($doc_id_or_name, $add_id_attribute = true)
+    public function getDocXml($docIdOrName, $addIdAttribute = true)
     {
         $xml = false;
 
-        if ($doc_id = $this->docExists($doc_id_or_name)) {
-            $doc = new Document($this, $doc_id);
-            $xml = $doc->getXml($add_id_attribute);
+        if ($docId = $this->docExists($docIdOrName)) {
+            $doc = new Document($this, $docId);
+            $xml = $doc->getXml($addIdAttribute);
         }
 
         return $xml;
@@ -265,18 +265,18 @@ class XmlDb implements Interfaces\XmlGetter
     /**
      * gets the first node of a document that matches an xpath query
      *
-     * @param $doc_id_or_name (mixed) id or name of the document
+     * @param $docIdOrName (mixed) id or name of the document
      * @param $xpath (string) xpath to target node
-     * @param $add_id_attribute (bool) whether to add the db:id attributes
+     * @param $addIdAttribute (bool) whether to add the db:id attributes
      * @return bool|\DOMDocument
      */
-    public function getDocXmlXpath($doc_id_or_name, $xpath, $add_id_attribute = true)
+    public function getDocXmlXpath($docIdOrName, $xpath, $addIdAttribute = true)
     {
         $xml = false;
 
-        if ($doc_id = $this->docExists($doc_id_or_name)) {
-            $doc = new Document($this, $doc_id);
-            $xml = $doc->getSubdocByXpath($xpath, $add_id_attribute);
+        if ($docId = $this->docExists($docIdOrName)) {
+            $doc = new Document($this, $docId);
+            $xml = $doc->getSubdocByXpath($xpath, $addIdAttribute);
         }
 
         return $xml;
@@ -289,17 +289,17 @@ class XmlDb implements Interfaces\XmlGetter
      * one node, only the first node will be returned.
      *
      * @param   $xpath (string) xpath to target node
-     * @param   $add_id_attribute (bool) whether to add db:id attribute or not
+     * @param   $addIdAttribute (bool) whether to add db:id attribute or not
      *
      * @return  $doc (domxmlobject)
      */
-    public function getSubdocByXpath($xpath, $add_id_attribute = true)
+    public function getSubdocByXpath($xpath, $addIdAttribute = true)
     {
         $subdoc = false;
         $ids = $this->getNodeIdsByXpath($xpath);
 
         if (isset($ids[0])) {
-            $subdoc = $this->getDocByNodeId($ids[0])->getSubdocByNodeId($ids[0], $add_id_attribute);
+            $subdoc = $this->getDocByNodeId($ids[0])->getSubdocByNodeId($ids[0], $addIdAttribute);
         }
 
         return $subdoc;
@@ -311,7 +311,7 @@ class XmlDb implements Interfaces\XmlGetter
      *
      * @attention this supports only a small subset of xpath-queries. so recheck source before using.
      *
-     * @param   $this->doc_id (int) id of document
+     * @param   $this->docId (int) id of document
      * @param   $xpath (string) xpath to target node
      *
      * @return  $nodeids (array) array of found node ids
@@ -344,7 +344,7 @@ class XmlDb implements Interfaces\XmlGetter
                 }
             }
 
-            $tableSql[] = "{$this->table_xml} AS l$level";
+            $tableSql[] = "{$this->tableXml} AS l$level";
             $op = $parser->getConditionOperator($element->namespace, $element->name);
             $condSql[] = "l$level.name $op :name$level";
             $params["name$level"] = $parser->translateName($element->namespace, $element->name);
@@ -472,7 +472,7 @@ class XmlDb implements Interfaces\XmlGetter
 
         $query = $this->pdo->prepare(
             "SELECT xml.id, xml.id_doc, xml.type, xml.value
-            FROM {$this->table_xml} AS xml
+            FROM {$this->tableXml} AS xml
             WHERE xml.id IN (" . implode(", ", $nodeIds) . ")",
         );
         $query->execute();
@@ -513,9 +513,9 @@ class XmlDb implements Interfaces\XmlGetter
 
         $pad = Document::SORTKEY_PAD;
         $query = $this->pdo->prepare(
-            Helpers\TreeSql::descendants($this->table_xml, "id IN (" . implode(", ", $nodeIds) . ")", $pad) . "
+            Helpers\TreeSql::descendants($this->tableXml, "id IN (" . implode(", ", $nodeIds) . ")", $pad) . "
             SELECT tree.root_id, xml.value
-            FROM tree INNER JOIN {$this->table_xml} AS xml ON xml.id = tree.id
+            FROM tree INNER JOIN {$this->tableXml} AS xml ON xml.id = tree.id
             WHERE xml.type = 'TEXT_NODE'
             ORDER BY tree.root_id ASC, tree.sortkey ASC",
         );
@@ -553,7 +553,7 @@ class XmlDb implements Interfaces\XmlGetter
         }
 
         $query = $this->pdo->prepare(
-            "INSERT {$this->table_docs} SET name = :name, type = :type, ns = '', entities = ''"
+            "INSERT {$this->tableDocs} SET name = :name, type = :type, ns = '', entities = ''"
         );
         $query->execute([
             'name' => $docName,
@@ -593,31 +593,31 @@ class XmlDb implements Interfaces\XmlGetter
     // }}}
     // {{{ removeDoc
     /**
-     * @param $doc_id_or_name
+     * @param $docIdOrName
      *
      * @return bool
      */
-    public function removeDoc($doc_id)
+    public function removeDoc($docId)
     {
         $result = false;
-        $doc_id = $this->docExists($doc_id);
+        $docId = $this->docExists($docId);
 
-        if ($doc_id !== false) {
+        if ($docId !== false) {
             $query = $this->pdo->prepare(
                 "DELETE
-                FROM {$this->table_docs}
+                FROM {$this->tableDocs}
                 WHERE id = :doc_id"
             );
             $query->execute([
-                'doc_id' => $doc_id,
+                'doc_id' => $docId,
             ]);
 
-            $this->cache->delete(Helpers\CacheKey::forDocument($this->table_docs, $doc_id));
+            $this->cache->delete(Helpers\CacheKey::forDocument($this->tableDocs, $docId));
 
-            $this->doc_ids = array_filter(
-                $this->doc_ids,
-                function ($id) use ($doc_id) {
-                    return $id != $doc_id;
+            $this->docIds = array_filter(
+                $this->docIds,
+                function ($id) use ($docId) {
+                    return $id != $docId;
                 }
             );
 
@@ -641,7 +641,7 @@ class XmlDb implements Interfaces\XmlGetter
         $schema = new \Depage\Db\Schema($this->pdo);
 
         $pdoPrefix = $this->pdo->prefix;
-        $tablePrefix = $this->table_prefix;
+        $tablePrefix = $this->tablePrefix;
 
         $schema->setReplace(
             function ($tableName) use ($pdoPrefix, $tablePrefix) {
@@ -668,10 +668,10 @@ class XmlDb implements Interfaces\XmlGetter
      */
     public function clearTables()
     {
-        $this->pdo->query("DELETE FROM `{$this->table_docs}`;");
-        //$this->pdo->query("ALTER TABLE `{$this->table_docs}` AUTO_INCREMENT = 1;");
+        $this->pdo->query("DELETE FROM `{$this->tableDocs}`;");
+        //$this->pdo->query("ALTER TABLE `{$this->tableDocs}` AUTO_INCREMENT = 1;");
 
-        $this->doc_ids = [];
+        $this->docIds = [];
     }
     // }}}
 

@@ -56,7 +56,7 @@ interface DocumentWriterHost
     /**
      * reads a node's subtree as a document (used to copy nodes)
      */
-    public function getSubdocByNodeId($id, $add_id_attribute = true);
+    public function getSubdocByNodeId($id, $addIdAttribute = true);
 }
 
 /* vim:set ft=php sw=4 sts=4 fdm=marker et : */

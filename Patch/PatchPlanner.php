@@ -40,16 +40,16 @@ class PatchPlanner
     /**
      * @param $pdo database connection to read the stored tree with
      * @param $table (string) name of the xmltree table
-     * @param $doc_id (int) document the nodes belong to
-     * @param $db_ns (XmlNs) namespace of the db:id attributes
-     * @param $id_attribute (string) name of the id attribute
+     * @param $docId (int) document the nodes belong to
+     * @param $dbNs (XmlNs) namespace of the db:id attributes
+     * @param $idAttribute (string) name of the id attribute
      */
     public function __construct(
         $pdo,
         protected string $table,
-        protected $doc_id,
-        protected XmlNs $db_ns,
-        protected string $id_attribute = 'id'
+        protected $docId,
+        protected XmlNs $dbNs,
+        protected string $idAttribute = 'id'
     ) {
         $this->pdo = $pdo;
     }
@@ -57,35 +57,35 @@ class PatchPlanner
 
     // {{{ plan
     /**
-     * compares the nodes of $node_array with the nodes stored in the
+     * compares the nodes of $nodeArray with the nodes stored in the
      * database and collects the minimal set of changes into a plan for
      * PatchApplier::apply(); returns null when the subtree can not be
      * patched (replaced root, missing database id or too many changes)
      *
-     * $check_root rejects the plan (instead of renaming the row in place)
+     * $checkRoot rejects the plan (instead of renaming the row in place)
      * when the root node is not compatible with the row its id points
      * to, i.e. was replaced by a node of another type or name;
      * saveNodePatch() uses this to fall back to a full saveNode()
      *
-     * @param $node_array (array) flattened node array
+     * @param $nodeArray (array) flattened node array
      *        (DocumentWriter::getNodeArrayForSaving)
      *
      * @return (array|null) the change plan or null
      */
-    public function plan(array $node_array, bool $check_root = false): ?array
+    public function plan(array $nodeArray, bool $checkRoot = false): ?array
     {
-        if (count($node_array) == 0) {
+        if (count($nodeArray) == 0) {
             return null;
         }
 
-        $root_id = $node_array[0]['id'];
+        $rootId = $nodeArray[0]['id'];
 
-        if (empty($root_id)) {
+        if (empty($rootId)) {
             // new subtree or the root node was replaced
             return null;
         }
 
-        $root_id = (int) $root_id;
+        $rootId = (int) $rootId;
 
         // load the stored tree, children of each parent in document order
         $query = $this->pdo->prepare(
@@ -95,27 +95,27 @@ class PatchPlanner
             ORDER BY xml.id_parent ASC, xml.pos ASC",
         );
         $query->execute([
-            'doc_id' => $this->doc_id,
+            'doc_id' => $this->docId,
         ]);
 
-        $old_rows = [];
-        $old_children = [];
+        $oldRows = [];
+        $oldChildren = [];
         while ($row = $query->fetchObject()) {
-            $old_rows[(int) $row->id] = $row;
+            $oldRows[(int) $row->id] = $row;
 
             if (!is_null($row->id_parent)) {
-                $old_children[(int) $row->id_parent][] = $row;
+                $oldChildren[(int) $row->id_parent][] = $row;
             }
         }
         $query->closeCursor();
 
-        if (!isset($old_rows[$root_id])) {
+        if (!isset($oldRows[$rootId])) {
             return null;
         }
 
         if (
-            $check_root
-            && !$this->nodesCompatible($this->nodeContent($node_array[0]['node']), $old_rows[$root_id])
+            $checkRoot
+            && !$this->nodesCompatible($this->nodeContent($nodeArray[0]['node']), $oldRows[$rootId])
         ) {
             // the root node replaced the node its id points to instead of
             // being a changed version of it
@@ -125,22 +125,22 @@ class PatchPlanner
         // number of stored nodes below the subtree root; the change limit
         // is checked against the size of the patched subtree instead of
         // the whole document (for a document patch these are the same)
-        $old_subtree = 0;
-        $parents = [$root_id];
+        $oldSubtree = 0;
+        $parents = [$rootId];
         while (!empty($parents)) {
-            $parent_id = array_shift($parents);
-            $old_subtree++;
+            $parentId = array_shift($parents);
+            $oldSubtree++;
 
-            foreach ($old_children[$parent_id] ?? [] as $child_row) {
-                $parents[] = (int) $child_row->id;
+            foreach ($oldChildren[$parentId] ?? [] as $childRow) {
+                $parents[] = (int) $childRow->id;
             }
         }
 
         // children of every node of the new document
-        $new_children = [];
-        foreach ($node_array as $index => $node) {
+        $newChildren = [];
+        foreach ($nodeArray as $index => $node) {
             if (!is_null($node['parent_index'])) {
-                $new_children[$node['parent_index']][] = $index;
+                $newChildren[$node['parent_index']][] = $index;
             }
         }
 
@@ -149,20 +149,20 @@ class PatchPlanner
         // children before their parents
         $content = [];
         $hashes = [];
-        for ($index = count($node_array) - 1; $index >= 0; $index--) {
-            $content[$index] = $this->nodeContent($node_array[$index]['node']);
+        for ($index = count($nodeArray) - 1; $index >= 0; $index--) {
+            $content[$index] = $this->nodeContent($nodeArray[$index]['node']);
             $content[$index][2] = \Normalizer::normalize($content[$index][2]);
 
-            $child_hashes = [];
-            foreach ($new_children[$index] ?? [] as $child_index) {
-                $child_hashes[] = $hashes[$child_index];
+            $childHashes = [];
+            foreach ($newChildren[$index] ?? [] as $childIndex) {
+                $childHashes[] = $hashes[$childIndex];
             }
 
-            $hashes[$index] = NodeContent::hash($content[$index][0], $content[$index][1], $content[$index][2], $child_hashes);
+            $hashes[$index] = NodeContent::hash($content[$index][0], $content[$index][1], $content[$index][2], $childHashes);
         }
 
         $plan = [
-            'root_id' => $root_id,
+            'root_id' => $rootId,
             'deletes' => [],
             'updates' => [],
             'inserts' => [],
@@ -173,19 +173,19 @@ class PatchPlanner
                 'deletes' => 0,
                 'inserts' => 0,
                 'renumber' => 0,
-                'old_nodes' => $old_subtree,
-                'new_nodes' => count($node_array),
+                'old_nodes' => $oldSubtree,
+                'new_nodes' => count($nodeArray),
             ],
         ];
 
-        $queue = [[0, $root_id]];
+        $queue = [[0, $rootId]];
 
         while (!empty($queue)) {
-            [$index, $old_id] = array_shift($queue);
+            [$index, $oldId] = array_shift($queue);
 
-            $old_row = $old_rows[$old_id];
+            $oldRow = $oldRows[$oldId];
 
-            if (!is_null($old_row->subhash) && $old_row->subhash === $hashes[$index]) {
+            if (!is_null($oldRow->subhash) && $oldRow->subhash === $hashes[$index]) {
                 // this whole subtree is identical, do not descend
                 $plan['stats']['identical']++;
                 continue;
@@ -197,106 +197,106 @@ class PatchPlanner
             // space after every attribute)
             [$type, $name, $value] = $content[$index];
 
-            if ($old_row->type != $type || (string) ($old_row->name ?? '') !== (string) ($name ?? '') || $old_row->value !== $value) {
+            if ($oldRow->type != $type || (string) ($oldRow->name ?? '') !== (string) ($name ?? '') || $oldRow->value !== $value) {
                 $plan['updates'][] = [
-                    'id' => $old_id,
+                    'id' => $oldId,
                     'name' => $name,
                     'value' => $value,
                 ];
                 $plan['stats']['updates']++;
             }
 
-            $new_kids = $new_children[$index] ?? [];
-            $old_kids = $old_children[$old_id] ?? [];
+            $newKids = $newChildren[$index] ?? [];
+            $oldKids = $oldChildren[$oldId] ?? [];
 
             // match the children of this parent by database id first, the
             // leftover nodes are matched by their relative position
-            $old_pos_by_id = [];
-            foreach ($old_kids as $pos => $row) {
-                $old_pos_by_id[(int) $row->id] = $pos;
+            $oldPosById = [];
+            foreach ($oldKids as $pos => $row) {
+                $oldPosById[(int) $row->id] = $pos;
             }
 
-            $pair_of_new = [];
-            $used_old = [];
+            $pairOfNew = [];
+            $usedOld = [];
 
-            foreach ($new_kids as $new_index) {
-                $id = $node_array[$new_index]['id'];
+            foreach ($newKids as $newIndex) {
+                $id = $nodeArray[$newIndex]['id'];
 
                 // elements without a db:id have an empty id, other node
                 // types have no id at all
-                if (!empty($id) && isset($old_pos_by_id[(int) $id]) && !isset($used_old[$old_pos_by_id[(int) $id]])) {
-                    $pair_of_new[$new_index] = $old_pos_by_id[(int) $id];
-                    $used_old[$old_pos_by_id[(int) $id]] = true;
+                if (!empty($id) && isset($oldPosById[(int) $id]) && !isset($usedOld[$oldPosById[(int) $id]])) {
+                    $pairOfNew[$newIndex] = $oldPosById[(int) $id];
+                    $usedOld[$oldPosById[(int) $id]] = true;
                 }
             }
 
             // positional matching for the nodes without a (recognized)
             // id; the first pair that is not compatible counts as
             // replacement of one node by the other
-            $rest_new = array_values(array_diff($new_kids, array_keys($pair_of_new)));
-            $rest_old = array_values(array_diff(array_keys($old_kids), array_keys($used_old)));
+            $restNew = array_values(array_diff($newKids, array_keys($pairOfNew)));
+            $restOld = array_values(array_diff(array_keys($oldKids), array_keys($usedOld)));
 
-            $insert_new = [];
-            $delete_old = [];
+            $insertNew = [];
+            $deleteOld = [];
 
-            while (!empty($rest_new) && !empty($rest_old)) {
-                $new_index = array_shift($rest_new);
-                $old_pos = array_shift($rest_old);
+            while (!empty($restNew) && !empty($restOld)) {
+                $newIndex = array_shift($restNew);
+                $oldPos = array_shift($restOld);
 
-                if ($this->nodesCompatible($content[$new_index], $old_kids[$old_pos])) {
-                    $pair_of_new[$new_index] = $old_pos;
+                if ($this->nodesCompatible($content[$newIndex], $oldKids[$oldPos])) {
+                    $pairOfNew[$newIndex] = $oldPos;
                 } else {
-                    $insert_new[] = $new_index;
-                    $delete_old[] = $old_pos;
+                    $insertNew[] = $newIndex;
+                    $deleteOld[] = $oldPos;
                 }
             }
-            $insert_new = array_merge($insert_new, $rest_new);
-            $delete_old = array_merge($delete_old, $rest_old);
+            $insertNew = array_merge($insertNew, $restNew);
+            $deleteOld = array_merge($deleteOld, $restOld);
 
-            foreach ($delete_old as $old_pos) {
-                $plan['deletes'][] = (int) $old_kids[$old_pos]->id;
+            foreach ($deleteOld as $oldPos) {
+                $plan['deletes'][] = (int) $oldKids[$oldPos]->id;
             }
-            $plan['stats']['deletes'] += count($delete_old);
+            $plan['stats']['deletes'] += count($deleteOld);
 
             // final order of the children: matched nodes keep their id,
             // the unmatched new nodes are inserted at their places
             $layout = [];
-            $survivors_new_order = [];
+            $survivorsNewOrder = [];
 
-            foreach ($new_kids as $new_index) {
-                if (isset($pair_of_new[$new_index])) {
-                    $child_old_id = (int) $old_kids[$pair_of_new[$new_index]]->id;
+            foreach ($newKids as $newIndex) {
+                if (isset($pairOfNew[$newIndex])) {
+                    $childOldId = (int) $oldKids[$pairOfNew[$newIndex]]->id;
 
-                    $layout[] = ['id' => $child_old_id];
-                    $survivors_new_order[] = $child_old_id;
+                    $layout[] = ['id' => $childOldId];
+                    $survivorsNewOrder[] = $childOldId;
                 } else {
                     $layout[] = ['insert' => count($plan['inserts'])];
 
                     $plan['inserts'][] = [
-                        'parent_id' => $old_id,
-                        'node' => $node_array[$new_index]['node'],
+                        'parent_id' => $oldId,
+                        'node' => $nodeArray[$newIndex]['node'],
                     ];
                 }
             }
-            $plan['stats']['inserts'] += count($insert_new);
+            $plan['stats']['inserts'] += count($insertNew);
 
-            $paired_old = array_values($pair_of_new);
+            $pairedOld = array_values($pairOfNew);
 
-            $survivors_stored_order = [];
-            foreach ($old_kids as $pos => $row) {
-                if (in_array($pos, $paired_old)) {
-                    $survivors_stored_order[] = (int) $row->id;
+            $survivorsStoredOrder = [];
+            foreach ($oldKids as $pos => $row) {
+                if (in_array($pos, $pairedOld)) {
+                    $survivorsStoredOrder[] = (int) $row->id;
                 }
             }
 
-            if (count($insert_new) > 0 || $survivors_new_order != $survivors_stored_order) {
-                $plan['renumber'][$old_id] = $layout;
+            if (count($insertNew) > 0 || $survivorsNewOrder != $survivorsStoredOrder) {
+                $plan['renumber'][$oldId] = $layout;
                 $plan['stats']['renumber']++;
             }
 
             // the matched pairs are processed with the same procedure
-            foreach ($pair_of_new as $new_index => $old_pos) {
-                $queue[] = [$new_index, (int) $old_kids[$old_pos]->id];
+            foreach ($pairOfNew as $newIndex => $oldPos) {
+                $queue[] = [$newIndex, (int) $oldKids[$oldPos]->id];
             }
         }
 
@@ -306,7 +306,7 @@ class PatchPlanner
         // need one row write each and do not count into this
         $changed = count($plan['inserts']) + count($plan['deletes']);
 
-        if ($changed > self::MAX_CHANGE_RATIO * max($old_subtree, count($node_array))) {
+        if ($changed > self::MAX_CHANGE_RATIO * max($oldSubtree, count($nodeArray))) {
             return null;
         }
 
@@ -321,7 +321,7 @@ class PatchPlanner
      */
     protected function nodeContent($node): array
     {
-        $content = NodeContent::fromDomNode($node, $this->db_ns, $this->id_attribute);
+        $content = NodeContent::fromDomNode($node, $this->dbNs, $this->idAttribute);
         $content[2] = \Normalizer::normalize($content[2]);
 
         return $content;

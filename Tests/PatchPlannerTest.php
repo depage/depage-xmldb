@@ -100,10 +100,10 @@ class PatchPlannerTest extends XmlDbTestCase
      */
     protected function nodeArrayFor($dom): array
     {
-        $node_array = [];
-        $this->doc->getNodeArrayForSaving($node_array, $dom);
+        $nodeArray = [];
+        $this->doc->getNodeArrayForSaving($nodeArray, $dom);
 
-        return $node_array;
+        return $nodeArray;
     }
     // }}}
     // {{{ dbIdOf

@@ -7,9 +7,9 @@ class DocumentTransactionTestClass extends DocumentTestClass
     public $cacheCleared = 0;
 
     // {{{ constructor
-    public function __construct($xmlDb, $doc_id)
+    public function __construct($xmlDb, $docId)
     {
-        parent::__construct($xmlDb, $doc_id);
+        parent::__construct($xmlDb, $docId);
 
         $dth = new DoctypeHandlerTransactionTestClass($this->xmlDb, $this);
         $this->setDoctypeHandler($dth);

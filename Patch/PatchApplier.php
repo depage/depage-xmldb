@@ -33,7 +33,7 @@ class PatchApplier
     /**
      * @param $pdo database connection to write with
      * @param $table (string) name of the xmltree table
-     * @param $doc_id (int) document the nodes belong to
+     * @param $docId (int) document the nodes belong to
      * @param $positions (Positions) position management of the document,
      *        used to reorder the child lists the plan changes
      * @param $writer (DocumentWriter) write pipeline of the document,
@@ -42,7 +42,7 @@ class PatchApplier
     public function __construct(
         $pdo,
         protected string $table,
-        protected $doc_id,
+        protected $docId,
         protected Positions $positions,
         protected DocumentWriter $writer
     ) {
@@ -64,10 +64,10 @@ class PatchApplier
                 WHERE id_doc = :doc_id AND id = :id",
             );
 
-            foreach ($plan['deletes'] as $node_id) {
+            foreach ($plan['deletes'] as $nodeId) {
                 $delete->execute([
-                    'doc_id' => $this->doc_id,
-                    'id' => $node_id,
+                    'doc_id' => $this->docId,
+                    'id' => $nodeId,
                 ]);
             }
         }
@@ -83,7 +83,7 @@ class PatchApplier
                 $update->execute([
                     'name' => $node['name'],
                     'value' => $node['value'],
-                    'doc_id' => $this->doc_id,
+                    'doc_id' => $this->docId,
                     'id' => $node['id'],
                 ]);
             }
@@ -91,29 +91,29 @@ class PatchApplier
 
         // new subtrees are appended to the child list of their parent,
         // the reordering below puts them in place
-        $inserted_ids = [];
+        $insertedIds = [];
         foreach ($plan['inserts'] as $index => $insert) {
-            $inserted_ids[$index] = $this->writer->saveNodeIn($insert['node'], $insert['parent_id'], -1, true);
+            $insertedIds[$index] = $this->writer->saveNodeIn($insert['node'], $insert['parent_id'], -1, true);
         }
 
-        foreach ($plan['renumber'] as $parent_id => $layout) {
-            $ordered_ids = [];
+        foreach ($plan['renumber'] as $parentId => $layout) {
+            $orderedIds = [];
             foreach ($layout as $slot) {
-                $ordered_ids[] = $slot['id'] ?? $inserted_ids[$slot['insert']];
+                $orderedIds[] = $slot['id'] ?? $insertedIds[$slot['insert']];
             }
 
             // skip the reordering when the children are already in the
             // right order (the appends did not change it)
-            $current = $this->positions->siblings($parent_id);
-            $reorder = count($current) != count($ordered_ids);
+            $current = $this->positions->siblings($parentId);
+            $reorder = count($current) != count($orderedIds);
             foreach ($current as $pos => $sibling) {
-                if (!$reorder && (int) $sibling->id != $ordered_ids[$pos]) {
+                if (!$reorder && (int) $sibling->id != $orderedIds[$pos]) {
                     $reorder = true;
                 }
             }
 
             if ($reorder) {
-                $this->positions->rebalance($parent_id, $ordered_ids);
+                $this->positions->rebalance($parentId, $orderedIds);
             }
         }
     }

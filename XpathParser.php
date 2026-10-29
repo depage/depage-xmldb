@@ -66,13 +66,13 @@ class XpathParser
      */
     public function parseAttributes($condition): false|array
     {
-        $cond_array = false;
-        $temp_condition = $this->removeLiteralStrings($condition, $strings);
+        $condArray = false;
+        $tempCondition = $this->removeLiteralStrings($condition, $strings);
 
-        if (preg_match('/^[\w\d@=: -<>\*]*$/', $temp_condition)) {
-            $cond_array = $this->getConditionAttributes($temp_condition, $strings);
+        if (preg_match('/^[\w\d@=: -<>\*]*$/', $tempCondition)) {
+            $condArray = $this->getConditionAttributes($tempCondition, $strings);
         }
-        return $cond_array;
+        return $condArray;
     }
     // }}}
 

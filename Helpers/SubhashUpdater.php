@@ -31,17 +31,17 @@ class SubhashUpdater
     /**
      * @param $pdo database connection to read and write with
      * @param $table (string) name of the xmltree table
-     * @param $doc_id (int) document whose subhashes are recalculated
+     * @param $docId (int) document whose subhashes are recalculated
      * @param $pad (int) number of digits of one sortkey level
      *        (Document::SORTKEY_PAD)
-     * @param $batch_size (int) number of rows written with one statement
+     * @param $batchSize (int) number of rows written with one statement
      */
     public function __construct(
         $pdo,
         protected string $table,
-        protected $doc_id,
+        protected $docId,
         protected int $pad,
-        protected int $batch_size = CaseUpdate::DEFAULT_SIZE
+        protected int $batchSize = CaseUpdate::DEFAULT_SIZE
     ) {
         $this->pdo = $pdo;
     }
@@ -63,37 +63,37 @@ class SubhashUpdater
             \Depage\Db\Pdo::unbuffered(),
         );
         $query->execute([
-            'doc_id' => $this->doc_id,
+            'doc_id' => $this->docId,
         ]);
 
         // deepest level first, so a node is only reached after all of its
         // children contributed their hash
-        $child_hashes = [];
+        $childHashes = [];
 
         // the recalculated hashes are only written after the cursor is
         // closed (no statement may run on the connection while the
         // unbuffered result is open), so they are collected in the update
         // buffer first
-        $subhashes = new CaseUpdate($this->pdo, $this->table, $this->batch_size);
+        $subhashes = new CaseUpdate($this->pdo, $this->table, $this->batchSize);
 
         while ($row = $query->fetchObject()) {
-            $hash = NodeContent::hash($row->type, $row->name, $row->value, $child_hashes[$row->id] ?? []);
+            $hash = NodeContent::hash($row->type, $row->name, $row->value, $childHashes[$row->id] ?? []);
 
             if ($row->subhash !== $hash) {
                 $subhashes->add($row->id, $hash);
             }
 
             if ($row->id_parent !== null) {
-                $child_hashes[$row->id_parent][] = $hash;
+                $childHashes[$row->id_parent][] = $hash;
             }
-            unset($child_hashes[$row->id]);
+            unset($childHashes[$row->id]);
         }
         // no statements may run while the unbuffered result is open
         $query->closeCursor();
 
         // subhash takes part in no unique index, so the case updates
         // cannot collide
-        $subhashes->write('subhash', ['id_doc' => $this->doc_id]);
+        $subhashes->write('subhash', ['id_doc' => $this->docId]);
     }
     // }}}
 }
