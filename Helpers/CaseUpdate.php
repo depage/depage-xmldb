@@ -12,8 +12,6 @@
 
 namespace Depage\XmlDb\Helpers;
 
-use Depage\XmlDb\Exceptions\XmlDbException;
-
 /**
  * @internal buffering the row updates of a save; not part of the public api
  * of this library
@@ -27,6 +25,8 @@ use Depage\XmlDb\Exceptions\XmlDbException;
  */
 class CaseUpdate
 {
+    use IdentifierChecker;
+
     /**
      * number of rows written with a single statement
      */
@@ -147,21 +147,6 @@ class CaseUpdate
             $ids,
             $whereParams
         ));
-    }
-    // }}}
-    // {{{ checkIdentifier
-    /**
-     * table and column names can not be bound as parameters, so they are
-     * checked to be plain identifiers before they are written into the
-     * statement
-     */
-    protected function checkIdentifier(string $name, string $kind = 'column'): string
-    {
-        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
-            throw new XmlDbException("Can not use \"$name\" as a $kind name.");
-        }
-
-        return $name;
     }
     // }}}
 }

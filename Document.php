@@ -57,7 +57,6 @@ class Document
     protected $table_prefix;
     protected $table_docs;
     protected $table_xml;
-    protected $table_nodetypes;
 
     protected $xmlDb;
     protected $doc_id;
@@ -73,6 +72,15 @@ class Document
     protected $namespaces = [];
     protected $lastchange = '';
     protected $lastchangeUid = '';
+
+    /**
+     * memoized result of getDocInfo(); every altering save updates the
+     * document row (and the history may change the release state), so the
+     * memo is dropped in updateLastChange, endTransaction and
+     * rollBackTransaction
+     */
+    protected $docInfo = null;
+    protected $docInfoLoaded = false;
 
     private $childNodeQuery = null;
     private $insertNodeQuery = null;
@@ -109,7 +117,6 @@ class Document
         $this->table_prefix = $xmlDb->table_prefix;
         $this->table_docs = $xmlDb->table_docs;
         $this->table_xml = $xmlDb->table_xml;
-        $this->table_nodetypes = $xmlDb->table_nodetypes;
 
         $this->doc_id = $doc_id;
     }
@@ -149,35 +156,45 @@ class Document
     /**
      * gets info about a document by doc_id
      *
-     * @return $info (array)
+     * the result is memoized for the lifetime of this document instance
+     * and reloaded whenever the document or its history changed; the
+     * returned object is shared between the calls of one generation, so
+     * callers must not alter it
+     *
+     * @return $info (object|false)
      */
     public function getDocInfo()
     {
-        $query = $this->pdo->prepare(
-            "SELECT
-                docs.id AS id,
-                docs.name AS name,
-                docs.rootid AS rootid,
-                docs.type AS type,
-                docs.ns AS namespaces,
-                docs.lastchange AS lastchange,
-                docs.lastchange_uid AS lastchangeUid
-            FROM {$this->table_docs} AS docs
-            WHERE docs.id = :doc_id
-            LIMIT 1",
-        );
-        $query->execute([
-            'doc_id' => $this->doc_id,
-        ]);
+        if (!$this->docInfoLoaded) {
+            $query = $this->pdo->prepare(
+                "SELECT
+                    docs.id AS id,
+                    docs.name AS name,
+                    docs.rootid AS rootid,
+                    docs.type AS type,
+                    docs.ns AS namespaces,
+                    docs.lastchange AS lastchange,
+                    docs.lastchange_uid AS lastchangeUid
+                FROM {$this->table_docs} AS docs
+                WHERE docs.id = :doc_id
+                LIMIT 1",
+            );
+            $query->execute([
+                'doc_id' => $this->doc_id,
+            ]);
 
-        $info = $query->fetchObject();
+            $info = $query->fetchObject();
 
-        if ($info) {
-            $info->lastchange = new \DateTime($info->lastchange);
-            $info->lastrelease = $this->getHistory()->getLatestVersion()->lastsaved ?? false;
+            if ($info) {
+                $info->lastchange = new \DateTime($info->lastchange);
+                $info->lastrelease = $this->getHistory()->getLatestVersion()->lastsaved ?? false;
+            }
+
+            $this->docInfo = $info;
+            $this->docInfoLoaded = true;
         }
 
-        return $info;
+        return $this->docInfo;
     }
     // }}}
     // {{{ getDoctypeHandler
@@ -314,7 +331,7 @@ class Document
     public function getNodeDataId($node)
     {
         return $node->nodeType == XML_ELEMENT_NODE
-            ? $db_id = $node->getAttributeNS($this->db_ns->uri, $this->id_data_attribute)
+            ? $node->getAttributeNS($this->db_ns->uri, $this->id_data_attribute)
             : null;
     }
     // }}}
@@ -556,7 +573,7 @@ class Document
      */
     public function getNodeIdsByXpath($xpath)
     {
-        $identifier = "{$this->table_docs}_d{$this->doc_id}/xpath_" . sha1($xpath);
+        $identifier = Helpers\CacheKey::forDocument($this->table_docs, $this->doc_id) . 'xpath_' . sha1($xpath);
         $fetched_ids = $this->cache->get($identifier);
 
         if ($fetched_ids === false) {
@@ -577,7 +594,7 @@ class Document
      */
     public function getSubdocByNodeId($id, $add_id_attribute = true)
     {
-        $identifier = "{$this->table_docs}_d{$this->doc_id}/{$id}.xml";
+        $identifier = Helpers\CacheKey::forDocument($this->table_docs, $this->doc_id) . "{$id}.xml";
         $xmlDoc = new \Depage\Xml\Document();
 
         if ($xmlStr = $this->cache->get($identifier)) {
@@ -585,71 +602,58 @@ class Document
             $xmlDoc->loadXML($xmlStr);
         } else {
             // read from database
-            $this->beginTransactionNonAltering();
+            $this->inTransaction(function () use ($id, &$xmlDoc) {
+                $query = null;
 
-            $query = null;
-            try {
-                $query = $this->pdo->prepare(
-                    "SELECT
-                        docs.entities AS entities,
-                        docs.ns AS namespaces,
-                        docs.lastchange AS lastchange,
-                        docs.lastchange_uid AS lastchangeUid
-                    FROM {$this->table_docs} AS docs
-                    WHERE docs.id = :doc_id",
-                );
-                $query->execute([
-                    'doc_id' => $this->doc_id,
-                ]);
-                $result = $query->fetchObject();
+                try {
+                    $query = $this->pdo->prepare(
+                        "SELECT
+                            docs.entities AS entities,
+                            docs.ns AS namespaces,
+                            docs.lastchange AS lastchange,
+                            docs.lastchange_uid AS lastchangeUid
+                        FROM {$this->table_docs} AS docs
+                        WHERE docs.id = :doc_id",
+                    );
+                    $query->execute([
+                        'doc_id' => $this->doc_id,
+                    ]);
+                    $result = $query->fetchObject();
 
-                $this->entities = $result->entities;
-                $this->namespace_string = $result->namespaces;
-                $this->namespaces = $this->extractNamespaces($this->namespace_string);
-                $this->namespaces[$this->db_ns->ns] = $this->db_ns;
-                $this->lastchange = $result->lastchange;
-                $this->lastchangeUid = $result->lastchangeUid;
+                    $this->entities = $result->entities;
+                    $this->namespace_string = $result->namespaces;
+                    $this->namespaces = $this->extractNamespaces($this->namespace_string);
+                    $this->namespaces[$this->db_ns->ns] = $this->db_ns;
+                    $this->lastchange = $result->lastchange;
+                    $this->lastchangeUid = $result->lastchangeUid;
 
-                $pad = self::SORTKEY_PAD;
-                $query = $this->pdo->prepare(
-                    "WITH RECURSIVE tree (id, id_parent, lvl, sortkey) AS
-                        (
-                        SELECT id, id_parent, 0, CAST('' AS CHAR(5000))
-                            FROM {$this->table_xml} AS xml
-                            WHERE id = :id AND id_doc = :doc_id
-                        UNION ALL
-                        SELECT x.id, x.id_parent, lvl + 1, CONCAT(sortkey, LPAD(IFNULL(x.pos + 1, 0), {$pad}, '0'))
-                            FROM {$this->table_xml} AS x INNER JOIN tree AS t
-                            ON x.id_parent = t.id
-                        )
+                    $query = $this->pdo->prepare(
+                        Helpers\TreeSql::descendants($this->table_xml, "id = :id AND id_doc = :doc_id", self::SORTKEY_PAD) . "
                         SELECT lvl, xml.* FROM tree JOIN {$this->table_xml} AS xml ON tree.id = xml.id ORDER BY sortkey;",
-                    \Depage\Db\Pdo::unbuffered(),
-                );
-                $query->execute([
-                    'doc_id' => $this->doc_id,
-                    'id' => $id,
-                ]);
-                $row = $query->fetchObject();
+                        \Depage\Db\Pdo::unbuffered(),
+                    );
+                    $query->execute([
+                        'doc_id' => $this->doc_id,
+                        'id' => $id,
+                    ]);
+                    $row = $query->fetchObject();
 
-                //get ROOT-NODE
-                if (!($row && $row->type == 'ELEMENT_NODE')) {
-                    throw new Exceptions\XmlDbException('This node is no ELEMENT_NODE or node does not exist' . " {$this->doc_id}/{$id}");
+                    //get ROOT-NODE
+                    if (!($row && $row->type == 'ELEMENT_NODE')) {
+                        throw new Exceptions\XmlDbException('This node is no ELEMENT_NODE or node does not exist' . " {$this->doc_id}/{$id}");
+                    }
+
+                    $this->addChildnodesByQuery($query, $row, $xmlDoc);
+                } catch (\Throwable $e) {
+                    // the tree query may be an unbuffered result, it has to be
+                    // closed before any other statement can run on the connection
+                    if (isset($query)) {
+                        $query->closeCursor();
+                    }
+
+                    throw $e;
                 }
-
-                $this->addChildnodesByQuery($query, $row, $xmlDoc);
-            } catch (\Throwable $e) {
-                // the tree query may be an unbuffered result, it has to be
-                // closed before any other statement can run on the connection
-                if (isset($query)) {
-                    $query->closeCursor();
-                }
-
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
+            }, false);
 
             $dth = $this->getDoctypeHandler();
             if ($dth->testDocument($xmlDoc)) { // test whether the document was altered
@@ -749,8 +753,9 @@ class Document
         $matches = preg_split('/(="|"$|" )/', (string) $value);
         $matches = array_chunk($matches, 2);
         foreach ($matches as $match) {
-            if ($match[0] != '') {
-                $attributes[$match[0]] = htmlspecialchars_decode($match[1]);
+            $name = trim($match[0]);
+            if ($name != '') {
+                $attributes[$name] = htmlspecialchars_decode($match[1] ?? '');
             }
         }
 
@@ -803,9 +808,7 @@ class Document
     {
         $info = $this->getDocInfo();
 
-        $this->beginTransactionAltering();
-
-        try {
+        $this->inTransaction(function () use ($info) {
             if ($info) {
                 $this->pdo->exec("SET FOREIGN_KEY_CHECKS=0;");
 
@@ -824,13 +827,7 @@ class Document
                     $this->pdo->exec("SET FOREIGN_KEY_CHECKS=1;");
                 }
             }
-        } catch (\Throwable $e) {
-            $this->rollBackTransaction();
-
-            throw $e;
-        }
-
-        $this->endTransaction();
+        });
 
         return $info;
     }
@@ -843,9 +840,7 @@ class Document
      */
     public function save(\DomDocument $xml)
     {
-        $this->beginTransactionAltering();
-
-        try {
+        return $this->inTransaction(function () use ($xml) {
             $doc_info = $this->clearDoc();
 
             $namespaces = $this->getNamespaceString($xml);
@@ -866,15 +861,9 @@ class Document
                 'ns' => $namespaces,
                 'doc_id' => $doc_info->id,
             ]);
-        } catch (\Throwable $e) {
-            $this->rollBackTransaction();
 
-            throw $e;
-        }
-
-        $this->endTransaction();
-
-        return $doc_info->id;
+            return $doc_info->id;
+        });
     }
     // }}}
 
@@ -918,9 +907,7 @@ class Document
             return $this->save($xml);
         }
 
-        $this->beginTransactionAltering();
-
-        try {
+        $this->inTransaction(function () use ($plan, $xml) {
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table_docs}
                 SET
@@ -936,13 +923,7 @@ class Document
             $this->applyPatch($plan);
 
             $this->updateLastChange();
-        } catch (\Throwable $e) {
-            $this->rollBackTransaction();
-
-            throw $e;
-        }
-
-        $this->endTransaction();
+        });
 
         $this->lastPatchStats = $plan['stats'] + ['fallback' => false];
 
@@ -1385,45 +1366,27 @@ class Document
      */
     public function deleteNode($node_id)
     {
-        $success = false;
-
         $dth = $this->getDoctypeHandler();
 
-        if ($dth->isAllowedDelete($node_id)) {
-            $this->beginTransactionAltering();
-
-            try {
-                $success = $this->deleteNodePrivate($node_id);
-
-                $this->updateLastChange();
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
+        if (!$dth->isAllowedDelete($node_id)) {
+            return false;
         }
 
-        return $success;
+        return $this->inTransaction(function () use ($node_id) {
+            $success = $this->deleteNodePrivate($node_id);
+
+            $this->updateLastChange();
+
+            return $success;
+        });
     }
     // }}}
     // {{{ saveNode
     public function saveNode($node)
     {
-        $this->beginTransactionAltering();
-
-        try {
-            $result = $this->saveNodePrivate($node);
-        } catch (\Throwable $e) {
-            $this->rollBackTransaction();
-
-            throw $e;
-        }
-
-        $this->endTransaction();
-
-        return $result;
+        return $this->inTransaction(
+            fn() => $this->saveNodePrivate($node)
+        );
     }
     // }}}
 
@@ -1462,19 +1425,11 @@ class Document
             return (int) $this->saveNode($node);
         }
 
-        $this->beginTransactionAltering();
-
-        try {
+        $this->inTransaction(function () use ($plan) {
             $this->applyPatch($plan);
 
             $this->updateLastChange();
-        } catch (\Throwable $e) {
-            $this->rollBackTransaction();
-
-            throw $e;
-        }
-
-        $this->endTransaction();
+        });
 
         $this->lastPatchStats = $plan['stats'] + ['fallback' => false];
 
@@ -1492,26 +1447,17 @@ class Document
      */
     public function addNode(\DomNode $node, $target_id, $target_pos = -1, $extras = [])
     {
-        $success = false;
         $dth = $this->getDoctypeHandler();
 
-        if ($dth->isAllowedAdd($node, $target_id)) {
-            $dth->onAddNode($node, $target_id, $target_pos, $extras);
-
-            $this->beginTransactionAltering();
-
-            try {
-                $success = $this->saveNodeIn($node, $target_id, $target_pos, true);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
+        if (!$dth->isAllowedAdd($node, $target_id)) {
+            return false;
         }
 
-        return $success;
+        $dth->onAddNode($node, $target_id, $target_pos, $extras);
+
+        return $this->inTransaction(
+            fn() => $this->saveNodeIn($node, $target_id, $target_pos, true)
+        );
     }
     // }}}
     // {{{ addNodeByName
@@ -1554,9 +1500,7 @@ class Document
      */
     public function replaceNode($node, $id_to_replace)
     {
-        $this->beginTransactionAltering();
-
-        try {
+        return $this->inTransaction(function () use ($node, $id_to_replace) {
             $target_id = $this->getParentIdById($id_to_replace);
             $target_pos = $this->getIndexById($id_to_replace);
 
@@ -1565,15 +1509,9 @@ class Document
             $changed_ids = [];
             $changed_ids[] = $this->saveNodeIn($node, $target_id, $target_pos, true);
             $changed_ids[] = $target_id;
-        } catch (\Throwable $e) {
-            $this->rollBackTransaction();
 
-            throw $e;
-        }
-
-        $this->endTransaction();
-
-        return $changed_ids;
+            return $changed_ids;
+        });
     }
     // }}}
     // {{{ duplicateNode
@@ -1588,62 +1526,33 @@ class Document
      */
     public function duplicateNode($node_id, $recursive = false)
     {
-        $success = false;
-
         // get parent and position for new node
         $target_id = $this->getParentIdById($node_id);
         $target_pos = $this->getIndexById($node_id) + 1;
         $dth = $this->getDoctypeHandler();
 
-        if ($dth->isAllowedMove($node_id, $target_id)) {
-            $xmlDoc = $this->getSubdocByNodeId($node_id, false);
-            $root_node = $xmlDoc;
-
-            $this->clearCache();
-            $this->beginTransactionAltering();
-
-            try {
-                $copy_id = $this->saveNodeIn($root_node, $target_id, $target_pos, $recursive);
-                $success = $copy_id;
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
-            $dth->onCopyNode($node_id, $copy_id);
+        if (!$dth->isAllowedMove($node_id, $target_id)) {
+            return false;
         }
 
-        return $success;
+        $xmlDoc = $this->getSubdocByNodeId($node_id, false);
+
+        $this->clearCache();
+
+        $copy_id = $this->inTransaction(
+            fn() => $this->saveNodeIn($xmlDoc, $target_id, $target_pos, $recursive)
+        );
+
+        $dth->onCopyNode($node_id, $copy_id);
+
+        return $copy_id;
     }
     // }}}
 
     // {{{ moveNode
     public function moveNode($node_id, $target_id, $target_pos)
     {
-        $parent_id = false;
-        $dth = $this->getDoctypeHandler();
-
-        if (
-            $node_id !== $target_id
-            && $dth->isAllowedMove($node_id, $target_id)
-        ) {
-            $this->beginTransactionAltering();
-
-            try {
-                $parent_id = $this->moveNodePrivate($node_id, $target_id, $target_pos);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
-            $dth->onMoveNode($node_id, $parent_id);
-        }
-
-        return $parent_id;
+        return $this->moveNodeChecked($node_id, $target_id, fn() => $target_pos);
     }
     // }}}
     // {{{ moveNodeIn
@@ -1655,29 +1564,7 @@ class Document
      */
     public function moveNodeIn($node_id, $target_id)
     {
-        $parent_id = false;
-        $dth = $this->getDoctypeHandler();
-
-        if (
-            $node_id !== $target_id
-            && $dth->isAllowedMove($node_id, $target_id)
-        ) {
-            $this->beginTransactionAltering();
-
-            try {
-                $position = $this->getTargetPos($target_id);
-                $parent_id = $this->moveNodePrivate($node_id, $target_id, $position);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
-            $dth->onMoveNode($node_id, $parent_id);
-        }
-
-        return $parent_id;
+        return $this->moveNodeChecked($node_id, $target_id, fn() => $this->getTargetPos($target_id));
     }
     // }}}
     // {{{ moveNodeBefore
@@ -1689,30 +1576,13 @@ class Document
      */
     public function moveNodeBefore($node_id, $target_id)
     {
-        $parent_id = false;
-        $dth = $this->getDoctypeHandler();
-
         $target_parent_id = $this->getParentIdById($target_id);
-        if (
-            $node_id !== $target_id
-            && $dth->isAllowedMove($node_id, $target_parent_id)
-        ) {
-            $this->beginTransactionAltering();
 
-            try {
-                $target_pos = $this->getIndexById($target_id);
-                $parent_id = $this->moveNodePrivate($node_id, $target_parent_id, $target_pos);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
-            $dth->onMoveNode($node_id, $parent_id);
-        }
-
-        return $parent_id;
+        return $this->moveNodeChecked(
+            $node_id,
+            $target_parent_id,
+            fn() => $this->getIndexById($target_id)
+        );
     }
     // }}}
     // {{{ moveNodeAfter
@@ -1724,55 +1594,53 @@ class Document
      */
     public function moveNodeAfter($node_id, $target_id)
     {
-        $parent_id = false;
+        $target_parent_id = $this->getParentIdById($target_id);
+
+        return $this->moveNodeChecked(
+            $node_id,
+            $target_parent_id,
+            fn() => $this->getIndexById($target_id) + 1
+        );
+    }
+    // }}}
+    // {{{ moveNodeChecked
+    /**
+     * moves a node if the doctype handler allows it; the four moveNode*
+     * variants differ only in how they compute the position to move to,
+     * $target_pos resolves it inside the transaction
+     *
+     * @param    $node_id (int) db-id of node
+     * @param    $target_id (int) db-id of the target (parent) node
+     * @param    $target_pos (callable) resolves the index to move to
+     *
+     * @return   (int|false) id of the old parent node, false if the node
+     *         was not moved
+     */
+    protected function moveNodeChecked($node_id, $target_id, callable $target_pos)
+    {
         $dth = $this->getDoctypeHandler();
 
-        $target_parent_id = $this->getParentIdById($target_id);
         if (
             $node_id !== $target_id
-            && $dth->isAllowedMove($node_id, $target_parent_id)
+            && $dth->isAllowedMove($node_id, $target_id)
         ) {
-            $this->beginTransactionAltering();
+            $parent_id = $this->inTransaction(
+                fn() => $this->moveNodePrivate($node_id, $target_id, $target_pos())
+            );
 
-            try {
-                $target_pos = $this->getIndexById($target_id) + 1;
-                $parent_id = $this->moveNodePrivate($node_id, $target_parent_id, $target_pos);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
             $dth->onMoveNode($node_id, $parent_id);
+
+            return $parent_id;
         }
 
-        return $parent_id;
+        return false;
     }
     // }}}
 
     // {{{ copyNode
     public function copyNode($node_id, $target_id, $target_pos)
     {
-        $copy_id = false;
-        $dth = $this->getDoctypeHandler();
-
-        if ($dth->isAllowedCopy($node_id, $target_id)) {
-            $this->beginTransactionAltering();
-
-            try {
-                $copy_id = $this->copyNodePrivate($node_id, $target_id, $target_pos);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
-            $dth->onCopyNode($node_id, $copy_id);
-        }
-
-        return $copy_id;
+        return $this->copyNodeChecked($node_id, $target_id, fn() => $target_pos);
     }
     // }}}
     // {{{ copyNodeIn
@@ -1784,29 +1652,10 @@ class Document
      */
     public function copyNodeIn($node_id, $target_id)
     {
-        $copy_id = false;
-        $dth = $this->getDoctypeHandler();
-
-        if ($dth->isAllowedCopy($node_id, $target_id)) {
-            $this->beginTransactionAltering();
-
-            try {
-                $position = $this->getTargetPos($target_id);
-                $copy_id = $this->copyNodePrivate($node_id, $target_id, $position);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
-            $dth->onCopyNode($node_id, $copy_id);
-        }
-
-        return $copy_id;
+        return $this->copyNodeChecked($node_id, $target_id, fn() => $this->getTargetPos($target_id));
     }
     // }}}
-    // {{{  copyNodeBefore
+    // {{{ copyNodeBefore
     /**
      * copy node before another node
      *
@@ -1815,26 +1664,11 @@ class Document
      */
     public function copyNodeBefore($node_id, $target_id)
     {
-        $copy_id = false;
-        $dth = $this->getDoctypeHandler();
-
-        $target_parent_id = $this->getParentIdById($target_id);
-        if ($dth->isAllowedCopy($node_id, $target_parent_id)) {
-            $this->beginTransactionAltering();
-
-            try {
-                $copy_id = $this->copyNodeWithOffset($node_id, $target_id);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
-            $dth->onCopyNode($node_id, $copy_id);
-        }
-
-        return $copy_id;
+        return $this->copyNodeChecked(
+            $node_id,
+            $this->getParentIdById($target_id),
+            fn() => $this->getIndexById($target_id)
+        );
     }
     // }}}
     // {{{ copyNodeAfter
@@ -1846,26 +1680,40 @@ class Document
      */
     public function copyNodeAfter($node_id, $target_id)
     {
-        $copy_id = false;
+        return $this->copyNodeChecked(
+            $node_id,
+            $this->getParentIdById($target_id),
+            fn() => $this->getIndexById($target_id) + 1
+        );
+    }
+    // }}}
+    // {{{ copyNodeChecked
+    /**
+     * copies a node if the doctype handler allows it; the four copyNode*
+     * variants differ only in how they compute the position to copy to,
+     * $target_pos resolves it inside the transaction
+     *
+     * @param    $node_id (int) db-id of node
+     * @param    $target_id (int) db-id of the target (parent) node
+     * @param    $target_pos (callable) resolves the index to copy to
+     *
+     * @return   (int|false) id of the copy, false if it was not made
+     */
+    protected function copyNodeChecked($node_id, $target_id, callable $target_pos)
+    {
         $dth = $this->getDoctypeHandler();
 
-        $target_parent_id = $this->getParentIdById($target_id);
-        if ($dth->isAllowedCopy($node_id, $target_parent_id)) {
-            $this->beginTransactionAltering();
+        if ($dth->isAllowedCopy($node_id, $target_id)) {
+            $copy_id = $this->inTransaction(
+                fn() => $this->copyNodePrivate($node_id, $target_id, $target_pos())
+            );
 
-            try {
-                $copy_id = $this->copyNodeWithOffset($node_id, $target_id, 1);
-            } catch (\Throwable $e) {
-                $this->rollBackTransaction();
-
-                throw $e;
-            }
-
-            $this->endTransaction();
             $dth->onCopyNode($node_id, $copy_id);
+
+            return $copy_id;
         }
 
-        return $copy_id;
+        return false;
     }
     // }}}
 
@@ -1897,19 +1745,9 @@ class Document
                     'node_id' => $node_id,
                 ]);
             } catch (\PDOException $e) {
-                $pad = self::SORTKEY_PAD;
                 $childquery = $this->pdo->prepare(
-                    "WITH RECURSIVE tree (id, id_parent, lvl, sortkey) AS
-                        (
-                        SELECT id, id_parent, 0, CAST('' AS CHAR(5000))
-                            FROM {$this->table_xml} AS xml
-                            WHERE id = :id AND id_doc = :doc_id
-                        UNION ALL
-                        SELECT x.id, x.id_parent, lvl + 1, CONCAT(sortkey, LPAD(IFNULL(x.pos + 1, 0), {$pad}, '0'))
-                            FROM {$this->table_xml} AS x INNER JOIN tree AS t
-                            ON x.id_parent = t.id
-                        )
-                        SELECT id FROM tree ORDER BY sortkey DESC;",
+                    Helpers\TreeSql::descendants($this->table_xml, "id = :id AND id_doc = :doc_id", self::SORTKEY_PAD) . "
+                    SELECT id FROM tree ORDER BY sortkey DESC;",
                 );
                 $childquery->execute([
                     'doc_id' => $this->doc_id,
@@ -2002,23 +1840,6 @@ class Document
         return $save_id;
     }
     // }}}
-    // {{{ copyNodeWithOffset
-    /**
-     * copy node after another node
-     *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
-     * @param    $target_pos_offset (int) offset of target position
-     */
-    protected function copyNodeWithOffset($node_id, $target_id, $target_pos_offset = 0)
-    {
-        $target_parent_id = $this->getParentIdById($target_id);
-        $target_pos = $this->getIndexById($target_id) + $target_pos_offset;
-        $copy_id = $this->copyNodePrivate($node_id, $target_parent_id, $target_pos);
-
-        return $copy_id;
-    }
-    // }}}
 
     // {{{ setAttribute
     /**
@@ -2030,11 +1851,7 @@ class Document
      */
     public function setAttribute($node_id, $attr_name, $attr_value)
     {
-        $success = false;
-
-        $this->beginTransactionAltering();
-
-        try {
+        return $this->inTransaction(function () use ($node_id, $attr_name, $attr_value) {
             $attributes = $this->getAttributes($node_id);
 
             if (
@@ -2050,17 +1867,11 @@ class Document
 
                 $attributes[$attr_name] = $attr_value;
 
-                $success = $this->saveAttributes($node_id, $attributes);
+                return $this->saveAttributes($node_id, $attributes);
             }
-        } catch (\Throwable $e) {
-            $this->rollBackTransaction();
 
-            throw $e;
-        }
-
-        $this->endTransaction();
-
-        return $success;
+            return false;
+        });
     }
     // }}}
     // {{{ removeAttribute
@@ -2072,21 +1883,17 @@ class Document
      */
     public function removeAttribute($node_id, $attr_name)
     {
-        $success = false;
+        return $this->inTransaction(function () use ($node_id, $attr_name) {
+            $attributes = $this->getAttributes($node_id);
 
-        $this->beginTransactionAltering();
+            if (isset($attributes[$attr_name])) {
+                unset($attributes[$attr_name]);
 
-        $attributes = $this->getAttributes($node_id);
+                return $this->saveAttributes($node_id, $attributes);
+            }
 
-        if (isset($attributes[$attr_name])) {
-            unset($attributes[$attr_name]);
-
-            $success = $this->saveAttributes($node_id, $attributes);
-        }
-
-        $this->endTransaction();
-
-        return $success;
+            return false;
+        });
     }
     // }}}
 
@@ -2191,8 +1998,6 @@ class Document
      */
     protected function getFreeNodeIds($preference = [])
     {
-        $lastMax = 0;
-
         if (!empty($preference)) {
             $ids = str_repeat('?,', count($preference) - 1) . '?';
             $query = $this->pdo->prepare("SELECT id FROM {$this->table_xml} WHERE id IN ($ids)");
@@ -2243,17 +2048,11 @@ class Document
                 }
 
                 //add attributes to node
-                $matches = array_chunk(preg_split('/(="|"$|" )/', $row->value), 2);
-                foreach ($matches as $m) {
-                    $attrName = trim($m[0]);
-                    $attrValue = htmlspecialchars_decode($m[1] ?? '');
-
-                    if ($attrName != '') {
-                        if ($ns = $this->getNamespace($attrName)) {
-                            $node->setAttributeNS($ns->uri, $attrName, $attrValue);
-                        } else {
-                            $node->setAttribute($attrName, $attrValue);
-                        }
+                foreach (self::parseAttributeString($row->value) as $attrName => $attrValue) {
+                    if ($ns = $this->getNamespace($attrName)) {
+                        $node->setAttributeNS($ns->uri, $attrName, $attrValue);
+                    } else {
+                        $node->setAttribute($attrName, $attrValue);
                     }
                 }
 
@@ -2696,6 +2495,39 @@ class Document
     }
     // }}}
 
+    // {{{ inTransaction
+    /**
+     * runs $work() inside a transaction and ends the transaction
+     * afterwards; rolls back to the transaction level (keeping outer
+     * transaction levels intact) and rethrows the exception when the
+     * work fails, so the transaction never stays open on an error
+     *
+     * @param $work (callable)
+     * @param $altering (bool) whether the work alters the document
+     *
+     * @return mixed return value of $work
+     */
+    protected function inTransaction(callable $work, bool $altering = true)
+    {
+        if ($altering) {
+            $this->beginTransactionAltering();
+        } else {
+            $this->beginTransactionNonAltering();
+        }
+
+        try {
+            $result = $work();
+        } catch (\Throwable $e) {
+            $this->rollBackTransaction();
+
+            throw $e;
+        }
+
+        $this->endTransaction();
+
+        return $result;
+    }
+    // }}}
     // {{{ beginTransactionAltering
     public function beginTransactionAltering()
     {
@@ -2721,6 +2553,7 @@ class Document
         $altered = $this->xmlDb->endTransaction();
 
         if ($altered) {
+            $this->clearDocInfoCache();
             $this->clearCache();
             $this->getDoctypeHandler()->onDocumentChange();
         }
@@ -2731,7 +2564,23 @@ class Document
     // {{{ rollBackTransaction
     public function rollBackTransaction()
     {
+        // the document may have changed before the rollback, reload the
+        // doc info instead of handing out information about rolled back
+        // changes
+        $this->docInfoLoaded = false;
+
         return $this->xmlDb->rollBackTransaction();
+    }
+    // }}}
+    // {{{ clearDocInfoCache
+    /**
+     * drops the memoized document info; has to be called when the
+     * document row or its history changes outside of the document's own
+     * transactions (like the history writes of DocumentHistory do)
+     */
+    public function clearDocInfoCache()
+    {
+        $this->docInfoLoaded = false;
     }
     // }}}
     // {{{ updateLastChange
@@ -2745,6 +2594,9 @@ class Document
     public function updateLastChange($timestamp = null, $uid = null)
     {
         $this->subhashesDirty = true;
+
+        // the document row changes, the memoized info is stale
+        $this->docInfoLoaded = false;
 
         $query = $this->pdo->prepare(
             "UPDATE {$this->table_docs}
@@ -2792,22 +2644,11 @@ class Document
      */
     protected function refreshSubhashes()
     {
-        $pad = self::SORTKEY_PAD;
-
         $query = $this->pdo->prepare(
-            "WITH RECURSIVE tree (id, id_parent, lvl, sortkey) AS
-                (
-                SELECT id, id_parent, 0, CAST('' AS CHAR(5000))
-                    FROM {$this->table_xml} AS xml
-                    WHERE id_doc = :doc_id AND id_parent IS NULL
-                UNION ALL
-                SELECT x.id, x.id_parent, lvl + 1, CONCAT(sortkey, LPAD(IFNULL(x.pos + 1, 0), {$pad}, '0'))
-                    FROM {$this->table_xml} AS x INNER JOIN tree AS t
-                    ON x.id_parent = t.id
-                )
-                SELECT xml.id, xml.id_parent, xml.type, xml.name, xml.value, xml.subhash
-                FROM tree JOIN {$this->table_xml} AS xml ON tree.id = xml.id
-                ORDER BY tree.lvl DESC, xml.id_parent ASC, xml.pos ASC;",
+            Helpers\TreeSql::descendants($this->table_xml, "id_doc = :doc_id AND id_parent IS NULL", self::SORTKEY_PAD) . "
+            SELECT xml.id, xml.id_parent, xml.type, xml.name, xml.value, xml.subhash
+            FROM tree JOIN {$this->table_xml} AS xml ON tree.id = xml.id
+            ORDER BY tree.lvl DESC, xml.id_parent ASC, xml.pos ASC;",
             \Depage\Db\Pdo::unbuffered(),
         );
         $query->execute([
@@ -2872,7 +2713,7 @@ class Document
     public function clearCache()
     {
         if (!is_null($this->doc_id)) {
-            $this->cache->delete("{$this->table_docs}_d{$this->doc_id}/");
+            $this->cache->delete(Helpers\CacheKey::forDocument($this->table_docs, $this->doc_id));
         }
     }
     // }}}

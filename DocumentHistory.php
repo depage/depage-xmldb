@@ -205,9 +205,7 @@ class DocumentHistory
 
             $query->execute($params);
             $dth->onHistorySave();
-
-            $result = $timestamp;
-        } else if ($latestVersion->hash == $hash) {
+        } else {
             // update date of latest version
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table_history}
@@ -225,11 +223,13 @@ class DocumentHistory
             ];
 
             $query->execute($params);
-
-            $result = $timestamp;
-        } else {
-            $result = strtotime($latestVersion->lastsaved->getTimestamp());
         }
+
+        // the release state reported in getDocInfo is derived from the
+        // history, drop the memoized info
+        $this->document->clearDocInfoCache();
+
+        $result = $timestamp;
 
         return $result;
     }
@@ -267,6 +267,10 @@ class DocumentHistory
         ];
 
         if ($query->execute($params)) {
+            // deleting a version may change the release state reported
+            // in getDocInfo, drop the memoized info
+            $this->document->clearDocInfoCache();
+
             return $query->rowCount() > 0;
         }
 

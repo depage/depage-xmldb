@@ -31,6 +31,8 @@ use Depage\XmlDb\Exceptions\XmlDbException;
  */
 class NodeBatch
 {
+    use IdentifierChecker;
+
     /**
      * number of nodes written with a single insert statement
      */
@@ -62,21 +64,7 @@ class NodeBatch
     ) {
         $this->pdo = $pdo;
 
-        $this->checkIdentifier($table);
-    }
-    // }}}
-    // {{{ checkIdentifier
-    /**
-     * the table name is the one part of the statements this batch writes
-     * that can not be a bound parameter
-     */
-    protected function checkIdentifier(string $name): string
-    {
-        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
-            throw new XmlDbException("Can not use \"$name\" as a table name.");
-        }
-
-        return $name;
+        $this->checkIdentifier($table, 'table');
     }
     // }}}
 

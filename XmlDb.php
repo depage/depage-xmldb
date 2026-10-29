@@ -25,7 +25,6 @@ class XmlDb implements XmlGetter
     protected $table_prefix = 'dp_';
     protected $table_docs;
     protected $table_xml;
-    protected $table_nodetypes;
 
     protected $doc_ids = [];
 
@@ -147,7 +146,6 @@ class XmlDb implements XmlGetter
 
         $query = $this->pdo->prepare(
             "SELECT
-                docs.name,
                 docs.name AS name,
                 docs.id AS id,
                 docs.rootid AS rootid,
@@ -497,20 +495,11 @@ class XmlDb implements XmlGetter
 
         $pad = Document::SORTKEY_PAD;
         $query = $this->pdo->prepare(
-            "WITH RECURSIVE sub (root_id, id, sortkey) AS
-                (
-                SELECT xml.id, xml.id, CAST('' AS CHAR(5000))
-                    FROM {$this->table_xml} AS xml
-                    WHERE xml.id IN (" . implode(", ", $nodeIds) . ")
-                UNION ALL
-                SELECT sub.root_id, x.id, CONCAT(sub.sortkey, LPAD(IFNULL(x.pos + 1, 0), {$pad}, '0'))
-                    FROM {$this->table_xml} AS x INNER JOIN sub
-                    ON x.id_parent = sub.id
-                )
-            SELECT sub.root_id, xml.value
-            FROM sub INNER JOIN {$this->table_xml} AS xml ON xml.id = sub.id
+            Helpers\TreeSql::descendants($this->table_xml, "id IN (" . implode(", ", $nodeIds) . ")", $pad) . "
+            SELECT tree.root_id, xml.value
+            FROM tree INNER JOIN {$this->table_xml} AS xml ON xml.id = tree.id
             WHERE xml.type = 'TEXT_NODE'
-            ORDER BY sub.root_id ASC, sub.sortkey ASC",
+            ORDER BY tree.root_id ASC, tree.sortkey ASC",
         );
         $query->execute();
 
@@ -605,7 +594,7 @@ class XmlDb implements XmlGetter
                 'doc_id' => $doc_id,
             ]);
 
-            $this->cache->delete("{$this->table_docs}_d{$doc_id}/");
+            $this->cache->delete(Helpers\CacheKey::forDocument($this->table_docs, $doc_id));
 
             $this->doc_ids = array_filter(
                 $this->doc_ids,
