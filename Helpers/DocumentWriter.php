@@ -149,7 +149,8 @@ class DocumentWriter
      *
      * @param $node_id (int) db-id of node
      * @param $target_id (int) db-id of target node
-     * @param $target_pos (int) position to move to
+     * @param $target_pos (int) index the node gets in the child list of the
+     *        target node, -1 appends it
      *
      * @return   (int) id of old parent node, false if the node was not moved
      */
@@ -159,9 +160,15 @@ class DocumentWriter
         $node_parent_id = $this->host->getParentIdById($node_id);
         $node_index = $this->positions->indexById($node_id);
 
-        if ($target_id == $node_parent_id && $target_pos > $node_index) {
-            $target_pos--;
-        }
+        // $target_pos is the index the node has after the move; inside its
+        // own parent the node is not part of the child list that index
+        // counts, so it must not be counted there either (a move to the
+        // index it already has is then the "no move" case)
+        $target_pos = $this->positions->normalizeIndex(
+            $target_id,
+            $target_pos,
+            ($target_id == $node_parent_id) ? $node_id : null
+        );
 
         if ($target_id != $node_parent_id || $target_pos != $node_index) {
             // with sparse positions the node only has to be reattached
@@ -195,7 +202,8 @@ class DocumentWriter
      *
      * @param $node_id (int) db-id of node
      * @param $target_id (int) db-id of target node
-     * @param $target_pos (int) pos to copy to
+     * @param $target_pos (int) index the copy gets in the child list of the
+     *        target node, -1 appends it
      *
      * @return $save_id (int) db-id of the copy
      */
@@ -271,6 +279,14 @@ class DocumentWriter
     // {{{ saveNodeIn
     /**
      * saves a node into the child list of a target node
+     *
+     * @param $node (domxmlnode) node to save
+     * @param $target_id (int) db-id of the node to save the node in
+     * @param $target_pos (int) index the node gets in the child list of
+     *        $target_id, -1 appends it
+     * @param $inc_children (bool) whether to save the child nodes too
+     *
+     * @return (int) db-id the node was saved under
      */
     public function saveNodeIn($node, $target_id, $target_pos, $inc_children)
     {
@@ -296,15 +312,9 @@ class DocumentWriter
             }
         }
 
-        $position = $this->positions->appendIndex($target_id);
-
-        if ($position) {
-            if ($target_pos > $position || $target_pos == -1) {
-                $target_pos = $position;
-            }
-        } else {
-            $target_pos = 0;
-        }
+        // saveNodeToDb turns this index into the position between the
+        // neighbours it is inserted at
+        $target_pos = $this->positions->normalizeIndex($target_id, $target_pos);
 
         // get all nodes in array
         $node_array = [];
@@ -524,12 +534,15 @@ class DocumentWriter
      * @param    $node (domxmlnode) node to save
      * @param    $id (int) db-id to save node in
      * @param    $target_id (int) db-id of parent node
-     * @param    $target_pos (int) position to save node at
-     * @param    $increase_pos (bool) whether to change positions in target nodes childlist
+     * @param    $target_pos (int) index the node gets in the child list of
+     *                     $target_id, -1 appends it
+     * @param    $set_position (bool) whether to give the node a position in
+     *                     the child list of the target node; without it the
+     *                     node is stored with $target_pos as position
      *
      * @return    $id (int) db-id under which node has been saved
      */
-    public function saveNodeToDb($node, $id, $target_id, $target_pos, $increase_pos = false)
+    public function saveNodeToDb($node, $id, $target_id, $target_pos, $set_position = false)
     {
         if (is_null($this->insertNodeQuery)) {
             $this->insertNodeQuery = $this->pdo->prepare(
@@ -552,10 +565,11 @@ class DocumentWriter
             $id_query = (int) $id;
         }
 
-        if ($node->nodeType == XML_ELEMENT_NODE && $target_id !== null && $increase_pos) {
-            // sparse positioning: the new node gets a position
-            // between its future neighbours, the other children keep
-            // theirs
+        if ($target_id !== null && $set_position) {
+            // sparse positioning: the node gets a position between its
+            // future neighbours, the other children keep theirs; this is
+            // done for every node type, a text node stored with the plain
+            // index would sort in front of the sparse positions
             $target_pos = $this->positions->positionForIndex($target_id, $target_pos);
         }
 

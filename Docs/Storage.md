@@ -109,6 +109,12 @@ positions are written again.
 A unique index on `(id_doc, id_parent, pos)` makes sure that two siblings
 never share a position.
 
+The target positions of the public methods (`addNode`, `moveNode`, `copyNode`,
+...) are the 0-based index the node gets in the child list, `-1` appends it.
+`Helpers/Positions.php` resolves them with `normalizeIndex()` and turns them
+into the sparse value of the `pos` column with `positionForIndex()`; that is
+the only place where target positions are clamped.
+
 ## Merkle hashes
 
 The `subhash` column holds a hash over the content of a node and the hashes

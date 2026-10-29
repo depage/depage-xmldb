@@ -25,9 +25,9 @@ class DocumentTestClass extends \Depage\XmlDb\Document
     }
     // }}}
     // {{{ saveNodeToDb
-    public function saveNodeToDb($node, $id, $target_id, $target_pos, $increase_pos = false)
+    public function saveNodeToDb($node, $id, $target_id, $target_pos, $set_position = false)
     {
-        return parent::saveNodeToDb($node, $id, $target_id, $target_pos, $increase_pos);
+        return parent::saveNodeToDb($node, $id, $target_id, $target_pos, $set_position);
     }
     // }}}
     // {{{ getNodeArrayForSaving

@@ -249,7 +249,8 @@ class Base implements DoctypeInterface
      *
      * @param   \DomNode  $node       the new node
      * @param   int       $target_id  db-id of the target node
-     * @param   int       $target_pos  position of the node in the child list
+     * @param   int       $target_pos  index the node gets in the child list
+     *                                 of the target node (-1 appends it)
      * @param   array     $extras     additional data of the caller
      *
      * @return  bool  true if the node may be added

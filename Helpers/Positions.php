@@ -24,6 +24,12 @@ use Depage\XmlDb\Exceptions\XmlDbException;
  * renumbered. A child list is rebalanced once the space between two
  * neighbours drops below POS_MIN_GAP.
  *
+ * The target positions the callers hand in are the 0-based index a node
+ * gets in the child list of its new parent, -1 appends it behind the last
+ * child. normalizeIndex() and positionForIndex() are the only ones
+ * resolving them (the index counts all child rows, not only the element
+ * nodes), callers must not clamp target positions on their own.
+ *
  * The methods work inside whatever transaction the caller opened.
  */
 class Positions
@@ -92,6 +98,83 @@ class Positions
         ]);
 
         return $query->fetchAll(\PDO::FETCH_OBJ);
+    }
+    // }}}
+
+    // {{{ siblingsWithout
+    /**
+     * gets the children of a parent node in document order without one of
+     * them; a node that is moved inside its own parent is not part of the
+     * child list the target position counts
+     *
+     * @param $parent_id (int) db-id of parent node
+     * @param $exclude_id (int) db-id of the child to leave out
+     *
+     * @return (array) list of objects with id and pos
+     */
+    private function siblingsWithout($parent_id, $exclude_id = null): array
+    {
+        $siblings = $this->siblings($parent_id);
+
+        if (!is_null($exclude_id)) {
+            foreach ($siblings as $i => $sibling) {
+                if ($sibling->id == $exclude_id) {
+                    unset($siblings[$i]);
+                    $siblings = array_values($siblings);
+                    break;
+                }
+            }
+        }
+
+        return $siblings;
+    }
+    // }}}
+
+    // {{{ clampIndex
+    /**
+     * maps a target position a caller gave to a valid insertion index of a
+     * child list; the index counts all child rows (element nodes as well
+     * as text nodes and the other node types)
+     *
+     * null and negative positions (like -1, "append") are the position
+     * behind the last child, positions beyond the end of the child list
+     * are clamped to it.
+     *
+     * @param $target_pos (int|null) position a caller wants a node at
+     * @param $num_siblings (int) number of children the index counts
+     *
+     * @return (int) index a node is inserted at
+     */
+    private function clampIndex($target_pos, int $num_siblings): int
+    {
+        if (!is_numeric($target_pos) || (int) $target_pos < 0) {
+            return $num_siblings;
+        }
+
+        return min((int) $target_pos, $num_siblings);
+    }
+    // }}}
+
+    // {{{ normalizeIndex
+    /**
+     * gets the index a node is inserted at in the child list of a parent
+     * node for the target position a caller asked for; this is the one
+     * place where the target positions of the public api (-1 appends, the
+     * other values are the 0-based index the node gets) are resolved
+     *
+     * @param $parent_id (int) db-id of parent node
+     * @param $target_pos (int|null) position a caller wants the node at
+     * @param $exclude_id (int) db-id of a child that does not count into
+     *        the index (a node that is moved inside its own parent)
+     *
+     * @return (int) index the node is inserted at
+     */
+    public function normalizeIndex($parent_id, $target_pos, $exclude_id = null)
+    {
+        return $this->clampIndex(
+            $target_pos,
+            count($this->siblingsWithout($parent_id, $exclude_id))
+        );
     }
     // }}}
 
@@ -177,7 +260,8 @@ class Positions
      * the child list is rebalanced and the position recalculated.
      *
      * @param $parent_id (int) db-id of parent node
-     * @param $index (int) insertion index in the child list
+     * @param $index (int) insertion index in the child list, a negative
+     *        position (like -1) appends the node
      * @param $exclude_id (int) db-id of a child that does not count into
      *        the index (a node that is moved inside its own parent)
      *
@@ -185,20 +269,10 @@ class Positions
      */
     public function positionForIndex($parent_id, $index, $exclude_id = null)
     {
-        $siblings = $this->siblings($parent_id);
-
-        if (!is_null($exclude_id)) {
-            foreach ($siblings as $i => $sibling) {
-                if ($sibling->id == $exclude_id) {
-                    unset($siblings[$i]);
-                    $siblings = array_values($siblings);
-                    break;
-                }
-            }
-        }
+        $siblings = $this->siblingsWithout($parent_id, $exclude_id);
 
         $num_siblings = count($siblings);
-        $index = min(max((int) $index, 0), $num_siblings);
+        $index = $this->clampIndex($index, $num_siblings);
 
         if ($index >= $num_siblings) {
             // appending does not need room between two neighbours

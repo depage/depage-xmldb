@@ -226,8 +226,17 @@ $doc->setAttribute($id, 'name', 'home');
 $doc->removeAttribute($id, 'name');
 ```
 
-The target position is the index the node gets in the list of the children of
-its new parent. `-1` appends the node at the end.
+The target position is the **0-based index the node gets in the list of the
+children of its new parent**, `-1` appends the node at the end and a position
+behind the last child is clamped to the end. The index counts all children of
+the target node, so a text node between two elements counts too — `getIndexById`
+returns the same index a position refers to.
+
+The same target position is used by `addNode`, `addNodeByName`, `moveNode` and
+`copyNode`; `moveNode` and `moveNodeBefore`/`moveNodeAfter` resolve it against
+the child list *without* the node that is moved, so `moveNode($id, $parent, $i)`
+always leaves the node at index `$i`, whether it moves towards the front or the
+back of its own child list.
 
 Reading single values of a node:
 
