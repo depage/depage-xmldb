@@ -13,7 +13,7 @@ CREATE TABLE `_xmldocs` (
   `ns` mediumtext NOT NULL,
   `entities` mediumtext NOT NULL,
   `rootid` int(11) unsigned DEFAULT NULL,
-  `lastchange` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+  `lastchange` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `lastchange_uid` int(11) unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `SECONDARY` (name(100)),
@@ -31,3 +31,13 @@ CREATE TABLE `_xmldocs` (
 */
 ALTER TABLE `_xmldocs` MODIFY `ns` mediumtext NOT NULL DEFAULT '';
 ALTER TABLE `_xmldocs` MODIFY `entities` mediumtext NOT NULL DEFAULT '';
+
+/*
+    @version 2.1.0
+
+    Zero-date defaults ('0000-00-00 00:00:00') are rejected by MySQL's
+    default sql_mode (NO_ZERO_DATE); the library writes lastchange
+    itself, so the default only covers rows created before the first
+    save and can be a regular value that works on MySQL and MariaDB.
+*/
+ALTER TABLE `_xmldocs` MODIFY `lastchange` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP;

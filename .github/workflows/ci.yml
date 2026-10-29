@@ -48,8 +48,11 @@ jobs:
       matrix:
         php: ['8.3', '8.4', '8.5']
     services:
-      mysql:
-        image: mysql:8.0
+      # MariaDB, not MySQL: Sql/*.sql uses zero-date column defaults
+      # (DEFAULT '0000-00-00 00:00:00') that mysql:8's default sql_mode
+      # (NO_ZERO_DATE) rejects; MariaDB is what this schema targets.
+      mariadb:
+        image: mariadb:11
         env:
           MYSQL_DATABASE: test_db
           MYSQL_USER: test_db_user
@@ -58,10 +61,10 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot"
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -u root -proot"
           --health-interval=5s
           --health-timeout=5s
-          --health-retries=20
+          --health-retries=10
     steps:
       - uses: actions/checkout@v4
 
@@ -79,4 +82,4 @@ jobs:
       - uses: ramsey/composer-install@v3
 
       - name: Run tests
-        run: vendor/bin/phpunit --configuration Tests/PhpUnit.xml
+        run: vendor/bin/phpunit --no-coverage --configuration Tests/PhpUnit.xml Tests/

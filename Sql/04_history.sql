@@ -10,7 +10,7 @@ CREATE TABLE `_history` (
   `doc_id` int(11) unsigned NOT NULL,
   `hash` varchar(40) NOT NULL DEFAULT '',
   `xml` mediumtext NOT NULL,
-  `last_saved_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+  `last_saved_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `user_id` int(11) unsigned NOT NULL,
   `published` tinyint unsigned NOT NULL,
   CONSTRAINT `_history_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `_auth_user` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
@@ -20,7 +20,7 @@ CREATE TABLE `_history` (
     @version 1.5.14
 */
 
-ALTER TABLE _history ADD COLUMN `first_saved_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' AFTER xml;
+ALTER TABLE _history ADD COLUMN `first_saved_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER xml;
 
 /*
     @version 1.5.25
@@ -41,3 +41,14 @@ ALTER TABLE _history ADD KEY `SECONDARY` (`doc_id`, `hash`, `last_saved_at`, `pu
 */
 ALTER TABLE _history DROP KEY `SECONDARY`;
 ALTER TABLE _history ADD KEY `SECONDARY` (`doc_id`, `published`, `last_saved_at`, `hash`);
+
+/*
+    @version 2.2.0
+
+    Zero-date defaults ('0000-00-00 00:00:00') are rejected by MySQL's
+    default sql_mode (NO_ZERO_DATE); the history writes both timestamps
+    itself, so the default is only a fallback and can be a regular value
+    that works on MySQL and MariaDB.
+*/
+ALTER TABLE _history MODIFY `last_saved_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE _history MODIFY `first_saved_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP;
