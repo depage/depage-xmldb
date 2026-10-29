@@ -1,6 +1,6 @@
 <?php
 
-namespace Depage\XmlDb;
+namespace Depage\XmlDb\Interfaces;
 
 interface XmlGetter
 {

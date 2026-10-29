@@ -1,6 +1,6 @@
 <?php
 
-namespace Depage\XmlDb\XmlDoctypes;
+namespace Depage\XmlDb\Interfaces;
 
 interface DoctypeInterface
 {

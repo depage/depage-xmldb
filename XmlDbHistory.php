@@ -11,7 +11,7 @@
 
 namespace Depage\XmlDb;
 
-class XmlDbHistory implements XmlGetter
+class XmlDbHistory implements Interfaces\XmlGetter
 {
     // {{{ variables
     protected $pdo;

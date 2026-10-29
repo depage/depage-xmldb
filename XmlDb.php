@@ -15,7 +15,7 @@ namespace Depage\XmlDb;
 
 use Depage\XmlDb\Exceptions\XmlDbException;
 
-class XmlDb implements XmlGetter
+class XmlDb implements Interfaces\XmlGetter
 {
     // {{{ variables
     public $pdo;

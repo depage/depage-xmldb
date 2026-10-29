@@ -12,24 +12,18 @@
 
 namespace Depage\XmlDb;
 
-class Document
+class Document implements Interfaces\DocumentWriterHost
 {
     // {{{ constants
-    /**
-     * number of decimal digits used for the position part of the recursive
-     * CTE sortkey; limits the tree depth the recursive queries can order
-     * to strlen-limit / SORTKEY_PAD levels
-     */
-    public const SORTKEY_PAD = 20;
-
     /**
      * distance between the sparse positions of sibling nodes; inserting a
      * node between two neighbours takes the midpoint of their positions,
      * the child list is rebalanced once the space between two neighbours
-     * drops below POS_MIN_GAP
+     * drops below POS_MIN_GAP (the position management itself is done by
+     * Helpers\Positions)
      */
-    public const POS_GAP = 65536;
-    public const POS_MIN_GAP = 16;
+    public const POS_GAP = Helpers\Positions::POS_GAP;
+    public const POS_MIN_GAP = Helpers\Positions::POS_MIN_GAP;
 
     /**
      * savePatch() falls back to a full save() and saveNodePatch() to a
@@ -37,16 +31,7 @@ class Document
      * patched subtree changed; below that limit patching writes fewer
      * rows than deleting and reinserting the tree would
      */
-    public const PATCH_MAX_CHANGE_RATIO = 0.4;
-
-    /**
-     * maximum number of nodes written with a single statement;
-     * saveNodesByType() inserts nodes in batches of this size (the auto
-     * incremented ids of such a batch are read back with one select over
-     * the unique sibling index), refreshSubhashes() and
-     * rebalancePositions() write their rows in batches of this size
-     */
-    public const SAVE_BATCH_SIZE = 200;
+    public const PATCH_MAX_CHANGE_RATIO = Patch\PatchPlanner::MAX_CHANGE_RATIO;
     // }}}
 
     // {{{ variables
@@ -82,8 +67,16 @@ class Document
     protected $docInfo = null;
     protected $docInfoLoaded = false;
 
-    private $childNodeQuery = null;
-    private $insertNodeQuery = null;
+    /**
+     * lazily built collaborators: the sparse position management, shared
+     * by the read (index), save, move and patch code paths, and the
+     * subhash updater
+     */
+    protected $positions = null;
+    protected $subhashUpdater = null;
+    protected $patchPlanner = null;
+    protected $patchApplier = null;
+    protected $writer = null;
 
     /**
      * set by updateLastChange, checked in endTransaction: the subhashes
@@ -218,14 +211,14 @@ class Document
                 if (!class_exists($className)) {
                     throw new Exceptions\XmlDbException("Doctype handler class \"$className\" does not exist");
                 }
-                if (!is_a($className, XmlDoctypes\DoctypeInterface::class, true)) {
+                if (!is_a($className, Interfaces\DoctypeInterface::class, true)) {
                     throw new Exceptions\XmlDbException('Doctype handler must implement DoctypeInterface');
                 }
 
                 $handler = new $className($this->xmlDb, $this);
             }
 
-            if ($handler instanceof XmlDoctypes\DoctypeInterface) {
+            if ($handler instanceof Interfaces\DoctypeInterface) {
                 $this->doctypeHandlers[$this->doc_id] = $handler;
             } else {
                 throw new Exceptions\XmlDbException('Doctype handler must implement DoctypeInterface');
@@ -268,6 +261,53 @@ class Document
     public function getHistory()
     {
         return new DocumentHistory($this->pdo, $this->table_prefix, $this);
+    }
+    // }}}
+    // {{{ positions
+    /**
+     * the collaborator managing the sparse sibling positions of this
+     * document's nodes
+     *
+     * @internal
+     *
+     * @return Helpers\Positions
+     */
+    protected function positions()
+    {
+        if (is_null($this->positions)) {
+            $this->positions = new Helpers\Positions($this->pdo, $this->table_xml, $this->doc_id, self::SAVE_BATCH_SIZE);
+        }
+
+        return $this->positions;
+    }
+    // }}}
+    // {{{ writer
+    /**
+     * the collaborator running the write pipeline (DOM trees to rows)
+     * for this document; the transaction stays on the document and the
+     * doctype handler, the node lookups and the read path are reached
+     * through the Interfaces\DocumentWriterHost interface this class
+     * implements
+     *
+     * @internal
+     *
+     * @return Helpers\DocumentWriter
+     */
+    protected function writer()
+    {
+        if (is_null($this->writer)) {
+            $this->writer = new Helpers\DocumentWriter(
+                pdo: $this->pdo,
+                table: $this->table_xml,
+                doc_id: $this->doc_id,
+                db_ns: $this->db_ns,
+                id_attribute: $this->id_attribute,
+                positions: $this->positions(),
+                host: $this
+            );
+        }
+
+        return $this->writer;
     }
     // }}}
     // {{{ isReleased()
@@ -403,102 +443,7 @@ class Document
      */
     public function getIndexById($id)
     {
-        $parent_id = $this->getParentIdById($id);
-
-        if ($parent_id === false) {
-            return false;
-        }
-
-        $pos = $this->getPosById($id);
-
-        $query = $this->pdo->prepare(
-            "SELECT COUNT(*) AS sibling_index
-            FROM {$this->table_xml} AS xml
-            WHERE xml.id_parent = :parent_id AND xml.id_doc = :doc_id AND xml.pos < :pos",
-        );
-        $query->execute([
-            'parent_id' => $parent_id,
-            'pos' => $pos,
-            'doc_id' => $this->doc_id,
-        ]);
-        $result = $query->fetchObject();
-
-        return (int) $result->sibling_index;
-    }
-    // }}}
-    // {{{ getSiblingPositions
-    /**
-     * gets id and pos of all children of a parent node in document order
-     *
-     * @param $parent_id (int) db-id of parent node
-     *
-     * @return (array) list of objects with id and pos
-     */
-    protected function getSiblingPositions($parent_id)
-    {
-        $query = $this->pdo->prepare(
-            "SELECT xml.id, xml.pos
-            FROM {$this->table_xml} AS xml
-            WHERE xml.id_parent = :parent_id AND xml.id_doc = :doc_id
-            ORDER BY xml.pos ASC, xml.id ASC",
-        );
-        $query->execute([
-            'parent_id' => $parent_id,
-            'doc_id' => $this->doc_id,
-        ]);
-
-        return $query->fetchAll(\PDO::FETCH_OBJ);
-    }
-    // }}}
-    // {{{ positionForIndex
-    /**
-     * calculates the sparse pos value for a node to be inserted at the
-     * given index of a parent node's child list; the result lies between
-     * the positions of the neighbouring siblings, so no other rows have
-     * to be renumbered. if the space between the neighbours is exhausted,
-     * the child list is rebalanced and the position recalculated.
-     *
-     * @param $parent_id (int) db-id of parent node
-     * @param $index (int) insertion index in the child list
-     * @param $exclude_id (int) db-id of a child that does not count into
-     *        the index (a node that is moved inside its own parent)
-     *
-     * @return (int) pos value for the node to insert
-     */
-    protected function positionForIndex($parent_id, $index, $exclude_id = null)
-    {
-        $siblings = $this->getSiblingPositions($parent_id);
-
-        if (!is_null($exclude_id)) {
-            foreach ($siblings as $i => $sibling) {
-                if ($sibling->id == $exclude_id) {
-                    unset($siblings[$i]);
-                    $siblings = array_values($siblings);
-                    break;
-                }
-            }
-        }
-
-        $num_siblings = count($siblings);
-        $index = min(max((int) $index, 0), $num_siblings);
-
-        if ($index >= $num_siblings) {
-            // appending does not need room between two neighbours
-            $last_pos = $num_siblings > 0 ? (int) $siblings[$num_siblings - 1]->pos : 0;
-
-            return $last_pos + self::POS_GAP;
-        }
-
-        $prev_pos = $index > 0 ? (int) $siblings[$index - 1]->pos : 0;
-        $next_pos = (int) $siblings[$index]->pos;
-
-        if ($next_pos - $prev_pos - 1 < self::POS_MIN_GAP) {
-            $this->rebalancePositions($parent_id);
-
-            return $this->positionForIndex($parent_id, $index, $exclude_id);
-        }
-
-        return intdiv($prev_pos + $next_pos, 2);
+        return $this->positions()->indexById($id);
     }
     // }}}
     // {{{ rebalancePositions
@@ -511,50 +456,7 @@ class Document
      */
     protected function rebalancePositions($parent_id, $order = null)
     {
-        $siblings = $this->getSiblingPositions($parent_id);
-
-        if (count($siblings) == 0) {
-            return;
-        }
-
-        $current = [];
-        foreach ($siblings as $sibling) {
-            $current[] = (int) $sibling->id;
-        }
-
-        if (is_null($order)) {
-            // keep the order that is stored in the database
-            $ids = $current;
-        } else {
-            // reorder into the given child order (used by savePatch)
-            $ids = array_map('intval', $order);
-
-            if (count($ids) != count($current) || array_diff($ids, $current) || array_diff($current, $ids)) {
-                throw new Exceptions\XmlDbException("Can not reorder the children of node {$parent_id}, the node list does not match.");
-            }
-        }
-
-        // the unique sibling index is checked row by row, so the positions
-        // have to be moved out of the way first: adding a big offset in
-        // descending order cannot collide with a sibling that has not
-        // been updated yet, and the offset is big enough to keep the
-        // scratch positions clear of the final positions that are
-        // assigned in the update below
-        $this->pdo->exec(
-            "UPDATE {$this->table_xml}
-            SET pos = pos + 1125899906842624
-            WHERE id_doc = " . (int) $this->doc_id . " AND id_parent = " . (int) $parent_id . "
-            ORDER BY pos DESC"
-        );
-
-        // every sibling gets a position of its own, so writing the final
-        // positions in batches cannot collide with the unique sibling
-        // index either
-        $positions = new Helpers\CaseUpdate($this->pdo, $this->table_xml, self::SAVE_BATCH_SIZE);
-        foreach ($ids as $index => $id) {
-            $positions->add($id, ($index + 1) * self::POS_GAP);
-        }
-        $positions->write('pos', ['id_doc' => $this->doc_id]);
+        $this->positions()->rebalance($parent_id, $order);
     }
     // }}}
 
@@ -982,243 +884,11 @@ class Document
         $node_array = [];
         $this->getNodeArrayForSaving($node_array, $node);
 
-        if (count($node_array) == 0) {
-            return null;
+        if (is_null($this->patchPlanner)) {
+            $this->patchPlanner = new Patch\PatchPlanner($this->pdo, $this->table_xml, $this->doc_id, $this->db_ns, $this->id_attribute);
         }
 
-        $root_id = $node_array[0]['id'];
-
-        if (empty($root_id)) {
-            // new subtree or the root node was replaced
-            return null;
-        }
-
-        $root_id = (int) $root_id;
-
-        // load the stored tree, children of each parent in document order
-        $query = $this->pdo->prepare(
-            "SELECT xml.id, xml.id_parent, xml.type, xml.name, xml.value, xml.subhash
-            FROM {$this->table_xml} AS xml
-            WHERE xml.id_doc = :doc_id
-            ORDER BY xml.id_parent ASC, xml.pos ASC",
-        );
-        $query->execute([
-            'doc_id' => $this->doc_id,
-        ]);
-
-        $old_rows = [];
-        $old_children = [];
-        while ($row = $query->fetchObject()) {
-            $old_rows[(int) $row->id] = $row;
-
-            if (!is_null($row->id_parent)) {
-                $old_children[(int) $row->id_parent][] = $row;
-            }
-        }
-        $query->closeCursor();
-
-        if (!isset($old_rows[$root_id])) {
-            return null;
-        }
-
-        if (
-            $check_root
-            && !$this->nodesCompatible($this->getNodeTypeData($node_array[0]['node']), $old_rows[$root_id])
-        ) {
-            // the root node replaced the node its id points to instead of
-            // being a changed version of it
-            return null;
-        }
-
-        // number of stored nodes below the subtree root; the change limit
-        // is checked against the size of the patched subtree instead of
-        // the whole document (for a document patch these are the same)
-        $old_subtree = 0;
-        $parents = [$root_id];
-        while (!empty($parents)) {
-            $parent_id = array_shift($parents);
-            $old_subtree++;
-
-            foreach ($old_children[$parent_id] ?? [] as $child_row) {
-                $parents[] = (int) $child_row->id;
-            }
-        }
-
-        // children of every node of the new document
-        $new_children = [];
-        foreach ($node_array as $index => $node) {
-            if (!is_null($node['parent_index'])) {
-                $new_children[$node['parent_index']][] = $index;
-            }
-        }
-
-        // canonical content and subtree hashes of the new document; the
-        // nodes are in document order, so going backwards processes the
-        // children before their parents
-        $content = [];
-        $hashes = [];
-        for ($index = count($node_array) - 1; $index >= 0; $index--) {
-            $content[$index] = $this->getNodeTypeData($node_array[$index]['node']);
-            $content[$index][2] = \Normalizer::normalize($content[$index][2]);
-
-            $child_hashes = [];
-            foreach ($new_children[$index] ?? [] as $child_index) {
-                $child_hashes[] = $hashes[$child_index];
-            }
-
-            $hashes[$index] = $this->getNodeHash($content[$index][0], $content[$index][1], $content[$index][2], $child_hashes);
-        }
-
-        $plan = [
-            'root_id' => $root_id,
-            'deletes' => [],
-            'updates' => [],
-            'inserts' => [],
-            'renumber' => [],
-            'stats' => [
-                'identical' => 0,
-                'updates' => 0,
-                'deletes' => 0,
-                'inserts' => 0,
-                'renumber' => 0,
-                'old_nodes' => $old_subtree,
-                'new_nodes' => count($node_array),
-            ],
-        ];
-
-        $queue = [[0, $root_id]];
-
-        while (!empty($queue)) {
-            [$index, $old_id] = array_shift($queue);
-
-            $old_row = $old_rows[$old_id];
-
-            if (!is_null($old_row->subhash) && $old_row->subhash === $hashes[$index]) {
-                // this whole subtree is identical, do not descend
-                $plan['stats']['identical']++;
-                continue;
-            }
-
-            // compare the content of the pair; this also normalizes the
-            // attribute strings of nodes that were stored by older
-            // versions of the library (which did not add the trailing
-            // space after every attribute)
-            [$type, $name, $value] = $content[$index];
-
-            if ($old_row->type != $type || (string) ($old_row->name ?? '') !== (string) ($name ?? '') || $old_row->value !== $value) {
-                $plan['updates'][] = [
-                    'id' => $old_id,
-                    'name' => $name,
-                    'value' => $value,
-                ];
-                $plan['stats']['updates']++;
-            }
-
-            $new_kids = $new_children[$index] ?? [];
-            $old_kids = $old_children[$old_id] ?? [];
-
-            // match the children of this parent by database id first, the
-            // leftover nodes are matched by their relative position
-            $old_pos_by_id = [];
-            foreach ($old_kids as $pos => $row) {
-                $old_pos_by_id[(int) $row->id] = $pos;
-            }
-
-            $pair_of_new = [];
-            $used_old = [];
-
-            foreach ($new_kids as $new_index) {
-                $id = $node_array[$new_index]['id'];
-
-                // elements without a db:id have an empty id, other node
-                // types have no id at all
-                if (!empty($id) && isset($old_pos_by_id[(int) $id]) && !isset($used_old[$old_pos_by_id[(int) $id]])) {
-                    $pair_of_new[$new_index] = $old_pos_by_id[(int) $id];
-                    $used_old[$old_pos_by_id[(int) $id]] = true;
-                }
-            }
-
-            // positional matching for the nodes without a (recognized)
-            // id; the first pair that is not compatible counts as
-            // replacement of one node by the other
-            $rest_new = array_values(array_diff($new_kids, array_keys($pair_of_new)));
-            $rest_old = array_values(array_diff(array_keys($old_kids), array_keys($used_old)));
-
-            $insert_new = [];
-            $delete_old = [];
-
-            while (!empty($rest_new) && !empty($rest_old)) {
-                $new_index = array_shift($rest_new);
-                $old_pos = array_shift($rest_old);
-
-                if ($this->nodesCompatible($content[$new_index], $old_kids[$old_pos])) {
-                    $pair_of_new[$new_index] = $old_pos;
-                } else {
-                    $insert_new[] = $new_index;
-                    $delete_old[] = $old_pos;
-                }
-            }
-            $insert_new = array_merge($insert_new, $rest_new);
-            $delete_old = array_merge($delete_old, $rest_old);
-
-            foreach ($delete_old as $old_pos) {
-                $plan['deletes'][] = (int) $old_kids[$old_pos]->id;
-            }
-            $plan['stats']['deletes'] += count($delete_old);
-
-            // final order of the children: matched nodes keep their id,
-            // the unmatched new nodes are inserted at their places
-            $layout = [];
-            $survivors_new_order = [];
-
-            foreach ($new_kids as $new_index) {
-                if (isset($pair_of_new[$new_index])) {
-                    $child_old_id = (int) $old_kids[$pair_of_new[$new_index]]->id;
-
-                    $layout[] = ['id' => $child_old_id];
-                    $survivors_new_order[] = $child_old_id;
-                } else {
-                    $layout[] = ['insert' => count($plan['inserts'])];
-
-                    $plan['inserts'][] = [
-                        'parent_id' => $old_id,
-                        'node' => $node_array[$new_index]['node'],
-                    ];
-                }
-            }
-            $plan['stats']['inserts'] += count($insert_new);
-
-            $paired_old = array_values($pair_of_new);
-
-            $survivors_stored_order = [];
-            foreach ($old_kids as $pos => $row) {
-                if (in_array($pos, $paired_old)) {
-                    $survivors_stored_order[] = (int) $row->id;
-                }
-            }
-
-            if (count($insert_new) > 0 || $survivors_new_order != $survivors_stored_order) {
-                $plan['renumber'][$old_id] = $layout;
-                $plan['stats']['renumber']++;
-            }
-
-            // the matched pairs are processed with the same procedure
-            foreach ($pair_of_new as $new_index => $old_pos) {
-                $queue[] = [$new_index, (int) $old_kids[$old_pos]->id];
-            }
-        }
-
-        // structural changes: when more than PATCH_MAX_CHANGE_RATIO of
-        // the nodes of the subtree have to be inserted or deleted, a
-        // full save is cheaper and safer than patching; updated nodes
-        // only need one row write each and do not count into this
-        $changed = count($plan['inserts']) + count($plan['deletes']);
-
-        if ($changed > self::PATCH_MAX_CHANGE_RATIO * max($old_subtree, count($node_array))) {
-            return null;
-        }
-
-        return $plan;
+        return $this->patchPlanner->plan($node_array, $check_root);
     }
     // }}}
     // {{{ applyPatch
@@ -1229,112 +899,11 @@ class Document
      */
     protected function applyPatch($plan)
     {
-        if (!empty($plan['deletes'])) {
-            $delete = $this->pdo->prepare(
-                "DELETE FROM {$this->table_xml}
-                WHERE id_doc = :doc_id AND id = :id",
-            );
-
-            foreach ($plan['deletes'] as $node_id) {
-                $delete->execute([
-                    'doc_id' => $this->doc_id,
-                    'id' => $node_id,
-                ]);
-            }
+        if (is_null($this->patchApplier)) {
+            $this->patchApplier = new Patch\PatchApplier($this->pdo, $this->table_xml, $this->doc_id, $this->positions(), $this->writer());
         }
 
-        if (!empty($plan['updates'])) {
-            $update = $this->pdo->prepare(
-                "UPDATE {$this->table_xml}
-                SET name = :name, value = :value
-                WHERE id_doc = :doc_id AND id = :id",
-            );
-
-            foreach ($plan['updates'] as $node) {
-                $update->execute([
-                    'name' => $node['name'],
-                    'value' => $node['value'],
-                    'doc_id' => $this->doc_id,
-                    'id' => $node['id'],
-                ]);
-            }
-        }
-
-        // new subtrees are appended to the child list of their parent,
-        // the reordering below puts them in place
-        $inserted_ids = [];
-        foreach ($plan['inserts'] as $index => $insert) {
-            $inserted_ids[$index] = $this->saveNodeIn($insert['node'], $insert['parent_id'], -1, true);
-        }
-
-        foreach ($plan['renumber'] as $parent_id => $layout) {
-            $ordered_ids = [];
-            foreach ($layout as $slot) {
-                $ordered_ids[] = isset($slot['id']) ? $slot['id'] : $inserted_ids[$slot['insert']];
-            }
-
-            // skip the reordering when the children are already in the
-            // right order (the appends did not change it)
-            $current = $this->getSiblingPositions($parent_id);
-            $reorder = count($current) != count($ordered_ids);
-            foreach ($current as $pos => $sibling) {
-                if (!$reorder && (int) $sibling->id != $ordered_ids[$pos]) {
-                    $reorder = true;
-                }
-            }
-
-            if ($reorder) {
-                $this->rebalancePositions($parent_id, $ordered_ids);
-            }
-        }
-    }
-    // }}}
-    // {{{ getNodeTypeData
-    /**
-     * returns the (type, name, value) tupel a DOM node is saved as, in
-     * exactly the same way saveNodeToDb stores it; needed to calculate
-     * the hashes of nodes that are not in the database (yet)
-     */
-    protected function getNodeTypeData($node)
-    {
-        if ($node->nodeType == XML_ELEMENT_NODE) {
-            if ($node->prefix != '') {
-                $node_name = $node->prefix . ':' . $node->localName;
-            } else {
-                $node_name = $node->localName;
-            }
-
-            $attributes = [];
-            foreach ($node->attributes as $attrib) {
-                $attrib_ns = ($attrib->prefix == '') ? '' : $attrib->prefix . ':';
-
-                $attributes[$attrib_ns . $attrib->localName] = $attrib->value;
-            }
-
-            return ['ELEMENT_NODE', $node_name, $this->getAttributeString($attributes)];
-        } elseif ($node->nodeType == XML_TEXT_NODE) {
-            return ['TEXT_NODE', null, $node->textContent];
-        } elseif ($node->nodeType == XML_COMMENT_NODE) {
-            return ['COMMENT_NODE', null, $node->textContent];
-        } elseif ($node->nodeType == XML_PI_NODE) {
-            return ['PI_NODE', $node->target, $node->textContent];
-        } elseif ($node->nodeType == XML_ENTITY_REF_NODE) {
-            return ['ENTITY_REF_NODE', null, $node->nodeName];
-        }
-
-        throw new Exceptions\XmlDbException('Unknown DOM node type: "' . $node->nodeType . '".');
-    }
-    // }}}
-    // {{{ nodesCompatible
-    /**
-     * whether a node of the new document can take the place of the
-     * stored node without changing its type or name (nodes are matched by
-     * position when they do not carry a database id)
-     */
-    protected function nodesCompatible(array $content, $row)
-    {
-        return $content[0] == $row->type
-            && (string) ($content[1] ?? '') === (string) ($row->name ?? '');
+        $this->patchApplier->apply($plan);
     }
     // }}}
     // {{{ getNamespaceString
@@ -1373,7 +942,7 @@ class Document
         }
 
         return $this->inTransaction(function () use ($node_id) {
-            $success = $this->deleteNodePrivate($node_id);
+            $success = $this->writer()->deleteNode($node_id);
 
             $this->updateLastChange();
 
@@ -1504,7 +1073,7 @@ class Document
             $target_id = $this->getParentIdById($id_to_replace);
             $target_pos = $this->getIndexById($id_to_replace);
 
-            $this->deleteNodePrivate($id_to_replace);
+            $this->writer()->deleteNode($id_to_replace);
 
             $changed_ids = [];
             $changed_ids[] = $this->saveNodeIn($node, $target_id, $target_pos, true);
@@ -1625,7 +1194,7 @@ class Document
             && $dth->isAllowedMove($node_id, $target_id)
         ) {
             $parent_id = $this->inTransaction(
-                fn() => $this->moveNodePrivate($node_id, $target_id, $target_pos())
+                fn() => $this->writer()->moveNode($node_id, $target_id, $target_pos())
             );
 
             $dth->onMoveNode($node_id, $parent_id);
@@ -1705,7 +1274,7 @@ class Document
 
         if ($dth->isAllowedCopy($node_id, $target_id)) {
             $copy_id = $this->inTransaction(
-                fn() => $this->copyNodePrivate($node_id, $target_id, $target_pos())
+                fn() => $this->writer()->copyNode($node_id, $target_id, $target_pos())
             );
 
             $dth->onCopyNode($node_id, $copy_id);
@@ -1714,130 +1283,6 @@ class Document
         }
 
         return false;
-    }
-    // }}}
-
-    // {{{ deleteNodePrivate
-    /**
-     * unlinks and deletes a specific node from database.
-     * re-indexes the positions of the remaining elements.
-     *
-     * @param     $node_id (int) db-id of node to delete
-     *
-     * @return    $deleted_ids (array) id of parent node
-     */
-    protected function deleteNodePrivate($node_id)
-    {
-        // get parent (needed by the doctype handler and as return value)
-        $target_id = $this->getParentIdById($node_id);
-
-        $dth = $this->getDoctypeHandler();
-
-        if ($dth->onDeleteNode($node_id, $target_id)) {
-            // delete the node
-            $query = $this->pdo->prepare(
-                "DELETE FROM {$this->table_xml}
-                WHERE id_doc = :doc_id AND id = :node_id",
-            );
-            try {
-                $query->execute([
-                    'doc_id' => $this->doc_id,
-                    'node_id' => $node_id,
-                ]);
-            } catch (\PDOException $e) {
-                $childquery = $this->pdo->prepare(
-                    Helpers\TreeSql::descendants($this->table_xml, "id = :id AND id_doc = :doc_id", self::SORTKEY_PAD) . "
-                    SELECT id FROM tree ORDER BY sortkey DESC;",
-                );
-                $childquery->execute([
-                    'doc_id' => $this->doc_id,
-                    'id' => $node_id,
-                ]);
-
-                // all ids have to be collected before the first delete,
-                // statements must not run while the result is still open;
-                // deleting deepest node first keeps the fk cascade shallow
-                $child_ids = $childquery->fetchAll(\PDO::FETCH_COLUMN);
-                $childquery->closeCursor();
-
-                foreach ($child_ids as $child_id) {
-                    $query->execute([
-                        'doc_id' => $this->doc_id,
-                        'node_id' => $child_id,
-                    ]);
-                }
-            }
-        }
-        return $target_id;
-    }
-    // }}}
-    // {{{ moveNodePrivate
-    /**
-     * moves node in database
-     *
-     * // TODO prevent moving a node to its children
-     *
-     * @protected
-     *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
-     * @param    $target_pos (int) position to move to
-     *
-     * @return   (int) id of new parent node
-     */
-    protected function moveNodePrivate($node_id, $target_id, $target_pos)
-    {
-        $result = false;
-        $node_parent_id = $this->getParentIdById($node_id);
-        $node_index = $this->getIndexById($node_id);
-
-        if ($target_id == $node_parent_id && $target_pos > $node_index) {
-            $target_pos--;
-        }
-
-        if ($target_id != $node_parent_id || $target_pos != $node_index) {
-            // with sparse positions the node only has to be reattached
-            // between its new neighbours, all other nodes keep their
-            // positions
-            $pos = $this->positionForIndex($target_id, $target_pos, $node_id);
-
-            $query = $this->pdo->prepare(
-                "UPDATE {$this->table_xml}
-                SET id_doc = :doc_id, id_parent = :target_id, pos = :pos
-                WHERE id = :node_id AND id_doc = :node_doc_id",
-            );
-            $query->execute([
-                'target_id' => $target_id,
-                'pos' => $pos,
-                'node_id' => $node_id,
-                'doc_id' => $this->doc_id,
-                'node_doc_id' => $this->doc_id,
-            ]);
-
-            $this->updateLastChange();
-            $result = $node_parent_id;
-        }
-
-        return $result;
-    }
-    // }}}
-    // {{{ copyNodePrivate
-    /**
-     * copy node in database
-     *
-     * @public
-     *
-     * @param    $node_id (int) db-id of node
-     * @param    $target_id (int) db-id of target node
-     * @param    $target_pos (int) pos to copy to
-     */
-    protected function copyNodePrivate($node_id, $target_id, $target_pos)
-    {
-        $xmlDoc = $this->getSubdocByNodeId($node_id, false);
-        $root_node = $xmlDoc;
-        $save_id = $this->saveNodeIn($root_node, $target_id, $target_pos, true);
-
-        return $save_id;
     }
     // }}}
 
@@ -1867,7 +1312,7 @@ class Document
 
                 $attributes[$attr_name] = $attr_value;
 
-                return $this->saveAttributes($node_id, $attributes);
+                return $this->writer()->saveAttributes($node_id, $attributes);
             }
 
             return false;
@@ -1889,7 +1334,7 @@ class Document
             if (isset($attributes[$attr_name])) {
                 unset($attributes[$attr_name]);
 
-                return $this->saveAttributes($node_id, $attributes);
+                return $this->writer()->saveAttributes($node_id, $attributes);
             }
 
             return false;
@@ -1897,31 +1342,6 @@ class Document
     }
     // }}}
 
-    // {{{ saveAttributes
-    /**
-     * sets attribute of node
-     *
-     * @param    $node_id (int) db-id of node to set attribute
-     * @param    $attributes (array) array of attribute values
-     */
-    protected function saveAttributes($node_id, $attributes)
-    {
-        $query = $this->pdo->prepare(
-            "UPDATE {$this->table_xml} AS xml
-            SET xml.value = :attr_str
-            WHERE xml.id = :node_id AND xml.id_doc = :doc_id",
-        );
-        $success = $query->execute([
-            'node_id' => $node_id,
-            'attr_str' => $this->getAttributeString($attributes),
-            'doc_id' => $this->doc_id,
-        ]);
-
-        $this->updateLastChange();
-
-        return $success;
-    }
-    // }}}
     // {{{ removeNodeAttr
     /**
      * recursively remove attributes from node
@@ -1966,50 +1386,15 @@ class Document
         return hash("sha256", $doc->saveXML());
     }
     // }}}
-    // {{{ getAttributeString
-    /**
-     * gets attribute string for saving
-     *
-     * @param $attributes (array) array of attribute values
-     */
-    protected function getAttributeString($attributes)
-    {
-        $attr_str = '';
-        $autogeneratedAttr = [
-            $this->db_ns->ns . ':' . $this->id_attribute,
-            $this->db_ns->ns . ':released',
-            $this->db_ns->ns . ':lastchange',
-            $this->db_ns->ns . ':lastchangeUid',
-        ];
-        ksort($attributes);
-        foreach ($attributes as $name => $value) {
-            if (!in_array($name, $autogeneratedAttr)) {
-                $attr_str .= "$name=\"" . htmlspecialchars($value) . "\" ";
-            }
-        }
-
-        return $attr_str;
-    }
-    // }}}
-
     // {{{ getFreeNodeIds
     /**
-     * gets unused db-node-ids for saving nodes
+     * gets unused db-node-ids for saving nodes; the result is kept in
+     * free_element_ids, where the write pipeline takes the ids for its
+     * nodes from
      */
     protected function getFreeNodeIds($preference = [])
     {
-        if (!empty($preference)) {
-            $ids = str_repeat('?,', count($preference) - 1) . '?';
-            $query = $this->pdo->prepare("SELECT id FROM {$this->table_xml} WHERE id IN ($ids)");
-            $query->execute($preference);
-            $results = $query->fetchAll(\PDO::FETCH_COLUMN);
-
-            $free = array_keys(array_flip(array_diff($preference, $results)));
-        } else {
-            $free = [];
-        }
-
-        $this->free_element_ids = $free;
+        $this->free_element_ids = $this->writer()->getFreeNodeIds($preference);
     }
     // }}}
     // {{{ addChildnodesByQuery
@@ -2103,23 +1488,7 @@ class Document
      */
     protected function getTargetPos($target_id)
     {
-        $query = $this->pdo->prepare(
-            "SELECT COUNT(*) AS pos
-            FROM {$this->table_xml} AS xml
-            WHERE xml.id_parent = :target_id AND id_doc = :doc_id",
-        );
-        $query->execute([
-            'target_id' => $target_id,
-            'doc_id' => $this->doc_id,
-        ]);
-
-        if ($object = $query->fetchObject()) {
-            $result = $object->pos;
-        } else {
-            $result = null;
-        }
-
-        return $result;
+        return $this->positions()->appendIndex($target_id);
     }
     // }}}
 
@@ -2160,205 +1529,18 @@ class Document
     // {{{ saveNodePrivate
     protected function saveNodePrivate($node)
     {
-        // get all nodes in array
-        $node_array = [];
-        $this->getNodeArrayForSaving($node_array, $node);
-        $rootId = $node_array[0]['id'];
-
-        if (is_null($rootId)) {
-            $target_id = null;
-            $target_pos = 0;
-        } else {
-            // set target_id/pos/doc
-            $target_id = $this->getParentIdById($rootId);
-            $target_pos = $this->getIndexById($rootId);
-
-            if ($target_id === false) {
-                $target_id = null;
-            }
-            if ($target_pos === false) {
-                $target_pos = null;
-            }
-
-            // delete old node
-            $this->deleteNodePrivate($rootId);
-        }
-
-        return $this->saveNodeArray($node_array, $target_id, $target_pos, true);
+        return $this->writer()->saveNodePrivate($node);
     }
     // }}}
     // {{{ saveNodeIn
     protected function saveNodeIn($node, $target_id, $target_pos, $inc_children)
     {
-        $parent_id = $this->getParentIdById($target_id);
-
-        // delete child nodes, if target is document
-        if ($parent_id === false) {
-            $this->pdo->exec('SET foreign_key_checks = 0;');
-
-            try {
-                $query = $this->pdo->prepare(
-                    "DELETE
-                    FROM {$this->table_xml}
-                    WHERE id_doc = :doc_id",
-                );
-                $query->execute([
-                    'doc_id' => $this->doc_id,
-                ]);
-            } finally {
-                // foreign key checks are session scoped, keep them enabled
-                // even if the delete failed
-                $this->pdo->exec('SET foreign_key_checks = 1;');
-            }
-        }
-
-        $position = $this->getTargetPos($target_id);
-
-        if ($position) {
-            if ($target_pos > $position || $target_pos == -1) {
-                $target_pos = $position;
-            }
-        } else {
-            $target_pos = 0;
-        }
-
-        // get all nodes in array
-        $node_array = [];
-        $this->getNodeArrayForSaving($node_array, $node);
-
-        return $this->saveNodeArray($node_array, $target_id, $target_pos, $inc_children);
-    }
-    // }}}
-    // {{{ saveNodeArray
-    protected function saveNodeArray($node_array, $target_id, $target_pos, $inc_children)
-    {
-        $ids = [];
-
-        foreach ($node_array as $node) {
-            if ($node['id']) {
-                $ids[] = $node['id'];
-            }
-        }
-
-        $this->getFreeNodeIds($ids);
-
-        foreach ($node_array as $i => $node) {
-            if (!is_null($node['id'])) {
-                $index = array_search($node['id'], $this->free_element_ids);
-
-                if ($index === false) {
-                    $node_array[$i]['id'] = null;
-                } else {
-                    array_splice($this->free_element_ids, $index, 1);
-                }
-            }
-        }
-
-        foreach ($node_array as $i => $node) {
-            if (is_null($node['id'])) {
-                $node_array[$i]['id'] = array_shift($this->free_element_ids);
-            }
-        }
-
-        // save root node
-        $node_array[0]['id'] = $this->saveNodeToDb($node_array[0]['node'], $node_array[0]['id'], $target_id, $target_pos, true);
-        $this->insertNodeQuery = null;
-
-        if ($inc_children) {
-            // save element nodes
-            $this->saveNodesByType($node_array, true);
-            // save other nodes
-            $this->saveNodesByType($node_array, false);
-        }
-
-        $this->updateLastChange();
-
-        return $node_array[0]['id'];
-    }
-    // }}}
-    // {{{ saveNodesByType
-    protected function saveNodesByType(&$node_array, $xml_element_node)
-    {
-        $batch = new Helpers\NodeBatch($this->pdo, $this->table_xml, (int) $this->doc_id, self::SAVE_BATCH_SIZE);
-
-        // writing the tree level by level makes sure that every node's
-        // parent has been saved (and its auto increment id read back)
-        // before the node itself is written; within one level the
-        // parents are always already resolved, so no batch has to be
-        // interrupted
-        $depths = [0];
-        $max_depth = 0;
-        foreach ($node_array as $i => $node) {
-            if ($i == 0) {
-                continue;
-            }
-            $depths[$i] = $depths[$node['parent_index']] + 1;
-            $max_depth = max($max_depth, $depths[$i]);
-        }
-
-        for ($level = 1; $level <= $max_depth; $level++) {
-            foreach ($node_array as $i => $node) {
-                if (
-                    $depths[$i] != $level
-                    || (($node['node']->nodeType == XML_ELEMENT_NODE) != $xml_element_node)
-                ) {
-                    continue;
-                }
-
-                $parent_id = $node_array[$node['parent_index']]['id'];
-
-                [$type, $name, $value] = $this->getNodeTypeData($node['node']);
-                $value = \Normalizer::normalize($value);
-
-                $batch->add($i, $node['id'], $parent_id, ($node['pos'] + 1) * self::POS_GAP, $name, $value, $type);
-
-                if ($batch->isFull()) {
-                    $this->setResolvedNodeIds($batch->write(), $node_array);
-                }
-            }
-
-            // the auto increment ids of this level have to be known
-            // before its children can reference them
-            $this->setResolvedNodeIds($batch->write(), $node_array);
-        }
-
-        $this->setResolvedNodeIds($batch->write(), $node_array);
-
-        $this->insertNodeQuery = null;
-    }
-    // }}}
-    // {{{ setResolvedNodeIds
-    /**
-     * stores the database ids a batch insert handed out for its nodes in
-     * the list of nodes to save (the parents of the following tree level
-     * and the caller of the save work with them) and adds them as db:id
-     * attribute to the nodes of the saved dom
-     *
-     * @param $resolved_ids (array) database ids keyed by the index of the
-     *        node in $node_array
-     * @param $node_array (array) nodes to save, as built by
-     *             getNodeArrayForSaving
-     */
-    protected function setResolvedNodeIds($resolved_ids, &$node_array)
-    {
-        foreach ($resolved_ids as $index => $id) {
-            $node_array[$index]['id'] = $id;
-
-            if ($node_array[$index]['node']->nodeType == XML_ELEMENT_NODE) {
-                $node_array[$index]['node']->setAttributeNS(
-                    $this->db_ns->uri,
-                    $this->db_ns->ns . ':' . $this->id_attribute,
-                    $id
-                );
-            }
-        }
+        return $this->writer()->saveNodeIn($node, $target_id, $target_pos, $inc_children);
     }
     // }}}
     // {{{ getNodeArrayForSaving
     /**
      * gets all nodes of a document in one array
-     *
-     * @protected
      *
      * @param    $node_array (array) list of nodes to add current node to
      * @param    $node (domxmlnode) current node
@@ -2369,61 +1551,7 @@ class Document
      */
     protected function getNodeArrayForSaving(&$node_array, $node, $parent_index = null, $pos = 0, $stripwhitespace = true)
     {
-        if (!$node) {
-            return;
-        }
-        $type = $node->nodeType;
-
-        if ($type === XML_DOCUMENT_NODE) {
-            $root_node = $node->documentElement;
-            $this->getNodeArrayForSaving($node_array, $root_node, $parent_index, $pos, $stripwhitespace);
-        } elseif ($type === XML_ELEMENT_NODE) {
-            $id = $this->getNodeId($node);
-            $node_array[] = [
-                'id' => $id,
-                'id_old' => $id,
-                'parent_index' => $parent_index,
-                'pos' => $pos,
-                'node' => $node,
-            ];
-
-            $parent_index = count($node_array) - 1;
-            $node_name = (($node->prefix != '') ? $node->prefix . ':' : '') . $node->localName;
-
-            $preserveWhitespace = $this->getDoctypeHandler()->getPreserveWhitespace();
-
-            if (
-                !$stripwhitespace
-                || in_array($node_name, $preserveWhitespace)
-            ) {
-                $stripwhitespace = false;
-            }
-
-            $tmp_node = $node->firstChild;
-            $i = 0;
-            while ($tmp_node != null) {
-                if (
-                    $tmp_node->nodeType != XML_TEXT_NODE
-                    || (
-                        !$stripwhitespace
-                        || trim($tmp_node->textContent) != ''
-                    )
-                ) {
-                    $this->getNodeArrayForSaving($node_array, $tmp_node, $parent_index, $i, $stripwhitespace);
-                    $i++;
-                }
-                $tmp_node = $tmp_node->nextSibling;
-            }
-        } else {
-            // is *_NODE
-            $node_array[] = [
-                'id' => null,
-                'id_old' => null,
-                'parent_index' => $parent_index,
-                'pos' => $pos,
-                'node' => $node,
-            ];
-        }
+        return $this->writer()->getNodeArrayForSaving($node_array, $node, $parent_index, $pos, $stripwhitespace);
     }
     // }}}
     // {{{ saveNodeToDb
@@ -2434,67 +1562,15 @@ class Document
      * @param    $id (int) db-id to save node in
      * @param    $target_id (int) db-id of parent node
      * @param    $target_pos (int) position to save node at
-     * @param    $target_doc (int) doc-id of target document
      * @param    $increase_pos (bool) whether to change positions in target nodes childlist
      *
      * @return    $id (int) db-id under which node has been saved
      */
     protected function saveNodeToDb($node, $id, $target_id, $target_pos, $increase_pos = false)
     {
-        if (is_null($this->insertNodeQuery)) {
-            $this->insertNodeQuery = $this->pdo->prepare(
-                "INSERT {$this->table_xml}
-                SET
-                    id = :id_query,
-                    id_parent = :target_id,
-                    id_doc = :doc_id,
-                    pos = :target_pos,
-                    name = :name,
-                    value = :value,
-                    type = :type
-                ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)",
-            );
-        }
-
-        if (is_null($id) || !is_numeric($id)) {
-            $id_query = null;
-        } else {
-            $id_query = (int) $id;
-        }
-
-        if ($node->nodeType == XML_ELEMENT_NODE && $target_id !== null && $increase_pos) {
-            // sparse positioning: the new node gets a position
-            // between its future neighbours, the other children keep
-            // theirs
-            $target_pos = $this->positionForIndex($target_id, $target_pos);
-        }
-
-        // same tupel getNodeTypeData calculates the subhashes from
-        [$node_type, $node_name, $node_data] = $this->getNodeTypeData($node);
-        $node_data = \Normalizer::normalize($node_data);
-
-        $this->insertNodeQuery->execute([
-            'id_query' => $id_query,
-            'target_id' => $target_id,
-            'target_pos' => $target_pos,
-            'name' => $node_name,
-            'value' => $node_data,
-            'type' => $node_type,
-            'doc_id' => $this->doc_id,
-        ]);
-
-        if (is_null($id)) {
-            $id = $this->pdo->lastInsertId();
-        }
-
-        if ($node->nodeType == XML_ELEMENT_NODE) {
-            $node->setAttributeNS($this->db_ns->uri, $this->db_ns->ns . ':' . $this->id_attribute, $id);
-        }
-
-        return $id;
+        return $this->writer()->saveNodeToDb($node, $id, $target_id, $target_pos, $increase_pos);
     }
     // }}}
-
     // {{{ inTransaction
     /**
      * runs $work() inside a transaction and ends the transaction
@@ -2644,61 +1720,11 @@ class Document
      */
     protected function refreshSubhashes()
     {
-        $query = $this->pdo->prepare(
-            Helpers\TreeSql::descendants($this->table_xml, "id_doc = :doc_id AND id_parent IS NULL", self::SORTKEY_PAD) . "
-            SELECT xml.id, xml.id_parent, xml.type, xml.name, xml.value, xml.subhash
-            FROM tree JOIN {$this->table_xml} AS xml ON tree.id = xml.id
-            ORDER BY tree.lvl DESC, xml.id_parent ASC, xml.pos ASC;",
-            \Depage\Db\Pdo::unbuffered(),
-        );
-        $query->execute([
-            'doc_id' => $this->doc_id,
-        ]);
-
-        // deepest level first, so a node is only reached after all of its
-        // children contributed their hash
-        $child_hashes = [];
-
-        // the recalculated hashes are only written after the cursor is
-        // closed (no statement may run on the connection while the
-        // unbuffered result is open), so they are collected in the update
-        // buffer first
-        $subhashes = new Helpers\CaseUpdate($this->pdo, $this->table_xml, self::SAVE_BATCH_SIZE);
-
-        while ($row = $query->fetchObject()) {
-            $hash = $this->getNodeHash($row->type, $row->name, $row->value, $child_hashes[$row->id] ?? []);
-
-            if ($row->subhash !== $hash) {
-                $subhashes->add($row->id, $hash);
-            }
-
-            if ($row->id_parent !== null) {
-                $child_hashes[$row->id_parent][] = $hash;
-            }
-            unset($child_hashes[$row->id]);
+        if (is_null($this->subhashUpdater)) {
+            $this->subhashUpdater = new Helpers\SubhashUpdater($this->pdo, $this->table_xml, $this->doc_id, self::SORTKEY_PAD, self::SAVE_BATCH_SIZE);
         }
-        // no statements may run while the unbuffered result is open
-        $query->closeCursor();
 
-        // subhash takes part in no unique index, so the case updates
-        // cannot collide
-        $subhashes->write('subhash', ['id_doc' => $this->doc_id]);
-    }
-    // }}}
-    // {{{ getNodeHash
-    /**
-     * canonical hash over one node row and the hashes of its children;
-     * the "v1" prefix pins the canonicalization, changing the format
-     * invalidates all stored hashes on the next recalculation
-     *
-     * @param $type (string) node type as stored in the database
-     * @param $name (string) node name as stored in the database
-     * @param $value (string) node value as stored in the database
-     * @param $child_hashes (array) hashes of the children in document order
-     */
-    protected function getNodeHash($type, $name, $value, array $child_hashes)
-    {
-        return hash('sha256', 'v1|' . $type . '|' . $name . '|' . $value . '|' . implode('|', $child_hashes));
+        $this->subhashUpdater->refresh();
     }
     // }}}
     // {{{ clearCache

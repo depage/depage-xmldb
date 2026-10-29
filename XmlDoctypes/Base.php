@@ -2,6 +2,8 @@
 
 namespace Depage\XmlDb\XmlDoctypes;
 
+use Depage\XmlDb\Interfaces\DoctypeInterface;
+
 class Base implements DoctypeInterface
 {
     // {{{ variables
