@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @file    modules/XmlDb/XmlDbHistory.php
  *
@@ -146,7 +147,7 @@ class XmlDbHistory implements Interfaces\XmlGetter
      */
     public function __sleep()
     {
-        return array(
+        return [
             'pdo',
             'xmlDb',
             'db_ns',
@@ -154,7 +155,7 @@ class XmlDbHistory implements Interfaces\XmlGetter
             'table_docs',
             'table_history',
             'options',
-        );
+        ];
     }
     // }}}
 }

@@ -23,7 +23,7 @@ class DocumentHistoryTest extends XmlDbTestCase
 
     // }}}
     // {{{ setUp
-    protected function setUp():void
+    protected function setUp(): void
     {
         parent::setUp();
 
@@ -38,21 +38,21 @@ class DocumentHistoryTest extends XmlDbTestCase
 
         $this->doc = new DocumentTestClass($this->xmlDb, 3);
         $this->history = $this->doc->getHistory();
-        $this->ver1 = (object)[
+        $this->ver1 = (object) [
             'lastsaved' => new \DateTime('2016-02-03 16:01:00'),
             'firstsaved' => new \DateTime('2016-02-03 16:01:00'),
             'userId' => 1,
             'published' => 0,
             'hash' => '5ceae27386aa1518d346c3129ef9c2d530c18769',
         ];
-        $this->ver2 = (object)[
+        $this->ver2 = (object) [
             'lastsaved' => new \DateTime('2016-02-03 16:02:00'),
             'firstsaved' => new \DateTime('2016-02-03 16:02:00'),
             'userId' => 1,
             'published' => 1,
             'hash' => 'f80107795f6da964ce7e3ccf472b42931ea0884eb15dd40d0bc718d71ba94bf5',
         ];
-        $this->ver3 = (object)[
+        $this->ver3 = (object) [
             'lastsaved' => new \DateTime('2016-02-03 16:03:00'),
             'firstsaved' => new \DateTime('2016-02-03 16:03:00'),
             'userId' => 1,

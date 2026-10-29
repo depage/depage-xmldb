@@ -1,0 +1,7 @@
+/vendor/
+/.php-cs-fixer.cache
+/.phpunit.cache/
+/Tests/.phpunit.cache/
+/Tests/Report/
+.DS_Store
+_vimsession.vis

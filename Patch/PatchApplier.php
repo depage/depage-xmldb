@@ -99,7 +99,7 @@ class PatchApplier
         foreach ($plan['renumber'] as $parent_id => $layout) {
             $ordered_ids = [];
             foreach ($layout as $slot) {
-                $ordered_ids[] = isset($slot['id']) ? $slot['id'] : $inserted_ids[$slot['insert']];
+                $ordered_ids[] = $slot['id'] ?? $inserted_ids[$slot['insert']];
             }
 
             // skip the reordering when the children are already in the

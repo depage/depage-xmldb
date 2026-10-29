@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @file    modules/xmlDb/History.php
  *
@@ -22,7 +23,8 @@ class DocumentHistory
     private $dateFormat = 'Y-m-d H:i:s';
     // }}}
     // {{{ constructor
-    public function __construct(\Depage\Db\Pdo $pdo, $table_prefix, Document $document) {
+    public function __construct(\Depage\Db\Pdo $pdo, $table_prefix, Document $document)
+    {
         $this->document = $document;
 
         $this->pdo = $pdo;
@@ -45,7 +47,8 @@ class DocumentHistory
      *
      * @return mixed
      */
-    public function getVersions($published = null, $maxResults = null) {
+    public function getVersions($published = null, $maxResults = null)
+    {
         $query = "SELECT h.hash, h.last_saved_at, h.first_saved_at, h.user_id, h.published
             FROM {$this->table_history} AS h
             WHERE h.doc_id = :doc_id";
@@ -75,7 +78,7 @@ class DocumentHistory
         if ($sth->execute($params)) {
             $results = $sth->fetchAll();
 
-            foreach($results as &$result) {
+            foreach ($results as &$result) {
                 $versions[strtotime($result['last_saved_at'])] = (object) [
                     'firstsaved' => new \DateTime($result['first_saved_at']),
                     'lastsaved' => new \DateTime($result['last_saved_at']),
@@ -95,7 +98,8 @@ class DocumentHistory
      *
      * gets the last document version
      */
-    public function getLatestVersion() {
+    public function getLatestVersion()
+    {
         $versions = $this->getVersions(true, 1);
 
         return reset($versions);
@@ -110,7 +114,8 @@ class DocumentHistory
      *
      * @return bool|\DOMDocument|object
      */
-    public function getXml($timestamp, $add_id_attribute = true) {
+    public function getXml($timestamp, $add_id_attribute = true)
+    {
         $doc = false;
         $docId = $this->document->getDocId();
 
@@ -150,7 +155,8 @@ class DocumentHistory
      *
      * load xml from last published version from history
      */
-    public function getLastPublishedXml($add_id_attribute = true) {
+    public function getLastPublishedXml($add_id_attribute = true)
+    {
         $versions = $this->getVersions(true, 1);
         reset($versions);
         $latest = key($versions);
@@ -238,7 +244,8 @@ class DocumentHistory
     /**
      * Restores the document to a previous state
      */
-    public function restore($timestamp) {
+    public function restore($timestamp)
+    {
         $success = false;
         $xml_doc = $this->getXml($timestamp);
 
@@ -255,7 +262,8 @@ class DocumentHistory
      *
      * @param $timestamp
      */
-    public function delete($timestamp) {
+    public function delete($timestamp)
+    {
         $query = $this->pdo->prepare(
             "DELETE FROM {$this->table_history}
              WHERE doc_id = :doc_id AND last_saved_at = :timestamp;"

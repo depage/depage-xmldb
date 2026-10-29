@@ -37,7 +37,7 @@ class DoctypeHandlerTest extends DoctypeHandlerBaseTest
         $expected = '<testNode xmlns:dpg="http://www.depagecms.net/ns/depage" xmlns:pg="http://www.depagecms.net/ns/page" attr1="value1" attr2="value2" name="customNameAttribute"/>';
 
         // convert node to xml string
-        $doc = new \DOMDocument;
+        $doc = new \DOMDocument();
         $doc->appendChild($doc->importNode($nodes->item(0)));
         $xml = $doc->saveHTML();
 
@@ -81,16 +81,16 @@ class DoctypeHandlerTest extends DoctypeHandlerBaseTest
     // {{{ testStripWhitespace
     public function testStripWhitespace()
     {
-        $xml = $this->generateDomDocument('<node>' .
-            "   \t  " .
-            '<subnode/> ' .
-            "   \t  " .
-        '</node>');
+        $xml = $this->generateDomDocument('<node>'
+            . "   \t  "
+            . '<subnode/> '
+            . "   \t  "
+        . '</node>');
 
         $this->doc->save($xml);
 
-        $expected = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" .
-            '<node xmlns:db="http://cms.depagecms.net/ns/database"><subnode/></node>' . "\n";
+        $expected = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+            . '<node xmlns:db="http://cms.depagecms.net/ns/database"><subnode/></node>' . "\n";
 
         $this->assertEqualsIgnoreLastchange($expected, $this->doc->getXml(false));
     }
@@ -100,18 +100,18 @@ class DoctypeHandlerTest extends DoctypeHandlerBaseTest
     {
         $this->dth->preserveWhitespace = ['node'];
 
-        $xml = $this->generateDomDocument('<node>' .
-            "   \t  " .
-            '<subnode/>' .
-            "   \t  " .
-        '</node>');
+        $xml = $this->generateDomDocument('<node>'
+            . "   \t  "
+            . '<subnode/>'
+            . "   \t  "
+        . '</node>');
 
         $this->doc->save($xml);
 
-        $expected = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" .
-            '<node xmlns:db="http://cms.depagecms.net/ns/database">' . "   \t  " .
-            '<subnode/>' . "   \t  " .
-            '</node>' . "\n";
+        $expected = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+            . '<node xmlns:db="http://cms.depagecms.net/ns/database">' . "   \t  "
+            . '<subnode/>' . "   \t  "
+            . '</node>' . "\n";
 
         $this->assertEqualsIgnoreLastchange($expected, $this->doc->getXml(false));
     }

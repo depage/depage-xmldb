@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<ruleset name="depage-xmldb">
+    <description>PHP compatibility checks for the versions supported by this library.</description>
+
+    <file>.</file>
+    <exclude-pattern>vendor/*</exclude-pattern>
+    <exclude-pattern type="relative">^\.php-cs-fixer\.cache$</exclude-pattern>
+
+    <arg name="extensions" value="php"/>
+    <arg name="basepath" value="."/>
+    <arg value="sp"/>
+
+    <rule ref="PHPCompatibility">
+        <properties>
+            <!-- code must run on all PHP versions from the composer.json floor (8.0) upwards -->
+            <property name="testVersion" value="8.0-"/>
+        </properties>
+    </rule>
+</ruleset>

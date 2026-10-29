@@ -2,14 +2,16 @@
 
 namespace Depage\XmlDb;
 
-class XmlNs {
+class XmlNs
+{
     // {{{ variables
     public $ns;
     public $uri;
     // }}}
 
     // {{{ constructor
-    function __construct($ns, $uri) {
+    public function __construct($ns, $uri)
+    {
         $this->ns = $ns;
         $this->uri = $uri;
     }

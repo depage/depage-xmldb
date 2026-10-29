@@ -15,9 +15,7 @@ class CountingPdo
     // }}}
 
     // {{{ __construct
-    public function __construct(protected $pdo)
-    {
-    }
+    public function __construct(protected $pdo) {}
     // }}}
 
     // {{{ reset

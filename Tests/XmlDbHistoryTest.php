@@ -11,7 +11,7 @@ class XmlDbHistoryTest extends XmlDbTestCase
     protected $testXmlDocumentNoIdAttr = '<?xml version="1.0"?>' . "\n" . '<dpg:pages xmlns:db="http://cms.depagecms.net/ns/database" xmlns:dpg="http://www.depagecms.net/ns/depage" xmlns:pg="http://www.depagecms.net/ns/page" name="ver2" db:docid="3" db:lastchange="2016-02-03 16:02:00" db:lastchangeUid=""><pg:page name="Home3"><pg:page name="P3.1">bla bla blub <pg:page name="P3.1.2"/></pg:page><pg:page name="P3.2"/></pg:page></dpg:pages>';
     // }}}
     // {{{ setUp
-    protected function setUp():void
+    protected function setUp(): void
     {
         parent::setUp();
 

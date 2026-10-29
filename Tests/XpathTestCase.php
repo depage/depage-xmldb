@@ -10,7 +10,7 @@ abstract class XpathTestCase extends XmlDbTestCase
     protected $testObject;
 
     // {{{ setUp
-    protected function setUp():void
+    protected function setUp(): void
     {
         parent::setUp();
 

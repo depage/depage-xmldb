@@ -10,7 +10,8 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
     // }}}
 
     // {{{ setUp
-    protected function setUp() {
+    protected function setUp()
+    {
         $this->getConnection();
         $this->setForeignKeyChecks(false);
         parent::setUp();
@@ -24,10 +25,10 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
     public function getSetUpOperation()
     {
         return new \PHPUnit_Extensions_Database_Operation_Composite(
-            array(
+            [
                 new PHPUnit_Extensions_Database_Operation_MySQL55Truncate(false),
                 \PHPUnit_Extensions_Database_Operation_Factory::INSERT(),
-            )
+            ]
         );
     }
     // }}}
@@ -39,9 +40,9 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
             $GLOBALS['DB_DSN'],
             $GLOBALS['DB_USER'],
             $GLOBALS['DB_PASSWD'],
-            array(
+            [
                 'prefix' => 'xmldb',
-            )
+            ]
         );
         $this->conn = $this->createDefaultDBConnection($this->pdo->getPdoObject(), $GLOBALS['DB_DBNAME']);
 
@@ -49,13 +50,15 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
     }
     // }}}
     // {{{ getDataSet
-    protected function getDataSet() {
-        return $this->createXMLDataSet(__DIR__.'/dataset.xml');
+    protected function getDataSet()
+    {
+        return $this->createXMLDataSet(__DIR__ . '/dataset.xml');
     }
     // }}}
 
     // {{{ setForeignKeyChecks
-    protected function setForeignKeyChecks($enable) {
+    protected function setForeignKeyChecks($enable)
+    {
         $setString = 'SET FOREIGN_KEY_CHECKS=';
         $setString .= ($enable) ? '1;' : '0;';
 
@@ -74,8 +77,7 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
 
         $schema = new \Depage\Db\Schema($pdo);
         $schema->setReplace(
-            function ($name)
-            {
+            function ($name) {
                 return 'xmldb_proj_test' . $name;
             }
         );
@@ -117,7 +119,7 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
     // {{{ dropTables
     protected function dropTables($tableNames)
     {
-        foreach($tableNames as $tableName) {
+        foreach ($tableNames as $tableName) {
             $this->dropTable($tableName);
         }
     }
@@ -150,10 +152,10 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
     // }}}
 
     // {{{ assertXmlStringEqualsXmlStringIgnoreAttributes
-    protected function assertXmlStringEqualsXmlStringIgnoreAttributes($expected, $actual, $attributes = array(), $message = '')
+    protected function assertXmlStringEqualsXmlStringIgnoreAttributes($expected, $actual, $attributes = [], $message = '')
     {
         foreach ($attributes as $attribute) {
-            $regex = preg_quote($attribute .'=') . '"[^"]*"';
+            $regex = preg_quote($attribute . '=') . '"[^"]*"';
             $actual = preg_replace('#' . $regex . '#', '', $actual);
             $expected = preg_replace('#' . $regex . '#', '', $expected);
         }
@@ -167,10 +169,10 @@ class DatabaseTestCase extends \PHPUnit_Extensions_Database_TestCase
         return $this->assertXmlStringEqualsXmlStringIgnoreAttributes(
             $expected,
             $actual,
-            array(
+            [
                 'db:lastchange',
                 'db:lastchangeUid',
-            ),
+            ],
             $message
         );
     }

@@ -25,14 +25,16 @@ class Base implements DoctypeInterface
     // }}}
 
     // {{{ constructor
-    public function __construct($xmlDb, $document) {
+    public function __construct($xmlDb, $document)
+    {
         $this->xmlDb = $xmlDb;
         $this->document = $document;
     }
     // }}}
 
     // {{{ getPermissions
-    public function getPermissions() {
+    public function getPermissions()
+    {
         return (object) [
             'validParents' => $this->getValidParents(),
             'availableNodes' => $this->getAvailableNodes(),
@@ -40,22 +42,26 @@ class Base implements DoctypeInterface
     }
     // }}}
     // {{{ getValidParents
-    public function getValidParents() {
+    public function getValidParents()
+    {
         return $this->validParents;
     }
     // }}}
     // {{{ getAvailableNodes
-    public function getAvailableNodes() {
+    public function getAvailableNodes()
+    {
         return $this->availableNodes;
     }
     // }}}
     // {{{ getPreserveWhitespace
-    public function getPreserveWhitespace() {
+    public function getPreserveWhitespace()
+    {
         return $this->preserveWhitespace;
     }
     // }}}
     // {{{ getNewNodeFor
-    public function getNewNodeFor($name) {
+    public function getNewNodeFor($name)
+    {
         $result = false;
 
         if (isset($this->availableNodes[$name])) {
@@ -76,7 +82,7 @@ class Base implements DoctypeInterface
                 }
                 $xml .= '/>';
             }
-            $doc = new \DOMDocument;
+            $doc = new \DOMDocument();
             $doc->loadXML("<root xmlns:pg=\"http://cms.depagecms.net/ns/page\" xmlns:sec=\"http://cms.depagecms.net/ns/section\" xmlns:edit=\"http://cms.depagecms.net/ns/edit\">$xml</root>");
 
             $result = $doc->documentElement->childNodes;
@@ -87,12 +93,13 @@ class Base implements DoctypeInterface
     // }}}
 
     // {{{ isAllowedIn
-    public function isAllowedIn($nodeName, $targetNodeName) {
+    public function isAllowedIn($nodeName, $targetNodeName)
+    {
         $result = false;
 
         if (isset($this->validParents['*'])) {
             $result = in_array('*', $this->validParents['*']) || in_array($targetNodeName, $this->validParents['*']);
-        } else if (isset($this->validParents[$nodeName])) {
+        } elseif (isset($this->validParents[$nodeName])) {
             $result = in_array('*', $this->validParents[$nodeName]) || in_array($targetNodeName, $this->validParents[$nodeName]);
         }
 
@@ -100,7 +107,8 @@ class Base implements DoctypeInterface
     }
     // }}}
     // {{{ isAllowedAdd
-    public function isAllowedAdd($node, $targetId) {
+    public function isAllowedAdd($node, $targetId)
+    {
         return $this->isAllowedIn(
             $node->nodeName,
             $this->document->getNodeNameById($targetId)
@@ -108,12 +116,14 @@ class Base implements DoctypeInterface
     }
     // }}}
     // {{{ isAllowedCopy
-    public function isAllowedCopy($nodeId, $targetId) {
+    public function isAllowedCopy($nodeId, $targetId)
+    {
         return $this->isAllowedMove($nodeId, $targetId);
     }
     // }}}
     // {{{ isAllowedMove
-    public function isAllowedMove($nodeId, $targetId) {
+    public function isAllowedMove($nodeId, $targetId)
+    {
         return $this->isAllowedIn(
             $this->document->getNodeNameById($nodeId),
             $this->document->getNodeNameById($targetId)
@@ -121,7 +131,8 @@ class Base implements DoctypeInterface
     }
     // }}}
     // {{{ isAllowedDelete
-    public function isAllowedDelete($nodeId) {
+    public function isAllowedDelete($nodeId)
+    {
         return true;
     }
     // }}}
@@ -147,7 +158,8 @@ class Base implements DoctypeInterface
      * @param $extras
      * @return null
      */
-    public function onAddNode(\DomNode $node, $target_id, $target_pos, $extras) {
+    public function onAddNode(\DomNode $node, $target_id, $target_pos, $extras)
+    {
         return true;
     }
     // }}}
@@ -160,7 +172,8 @@ class Base implements DoctypeInterface
      * @param $target_pos
      * @return null
      */
-    public function onCopyNode($node_id, $copy_id) {
+    public function onCopyNode($node_id, $copy_id)
+    {
         return true;
     }
     // }}}
@@ -173,7 +186,8 @@ class Base implements DoctypeInterface
      * @param $target_id
      * @return bool
      */
-    public function onMoveNode($node_id, $oldParentId) {
+    public function onMoveNode($node_id, $oldParentId)
+    {
         return true;
     }
     // }}}
@@ -185,7 +199,8 @@ class Base implements DoctypeInterface
      * @param $parent_id
      * @return bool
      */
-    public function onDeleteNode($node_id, $parent_id) {
+    public function onDeleteNode($node_id, $parent_id)
+    {
         return true;
     }
     // }}}
@@ -197,7 +212,8 @@ class Base implements DoctypeInterface
      * @param $parent_id
      * @return bool
      */
-    public function onSetAttribute($nodeId, $attrName, $oldVal, $newVal) {
+    public function onSetAttribute($nodeId, $attrName, $oldVal, $newVal)
+    {
         return true;
     }
     // }}}
@@ -214,12 +230,14 @@ class Base implements DoctypeInterface
     // }}}
 
     // {{{ testDocument
-    public function testDocument($xml) {
+    public function testDocument($xml)
+    {
         return false;
     }
     // }}}
     // {{{ testDocumentForHistory
-    public function testDocumentForHistory($xml) {
+    public function testDocumentForHistory($xml)
+    {
         return false;
     }
     // }}}
