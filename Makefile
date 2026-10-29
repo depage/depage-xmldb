@@ -1,4 +1,4 @@
-# version of the library, taken from the git tags
+RM = rm -rf
 VERSION = $(shell git describe --tags --abbrev=0)
 
 # run the phpunit test suite (needs a mysql server configured in Tests/PhpUnit.xml)

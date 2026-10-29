@@ -10,6 +10,16 @@
     <tab type="user" url="@ref storage" visible="yes" title="Storage"/>
     <tab type="user" url="@ref developer-guide" visible="yes" title="Developer Guide"/>
 
+    <tab type="user" url="." title=""/>
+
+    <tab type="user" url="@ref Depage::XmlDb::XmlDb" visible="yes" title="XmlDb Class"/>
+    <tab type="user" url="@ref Depage::XmlDb::XmlDbHistory" visible="yes" title="XmlDbHistory Class"/>
+    <tab type="user" url="@ref Depage::XmlDb::Document" visible="yes" title="Document Class"/>
+    <tab type="user" url="@ref Depage::XmlDb::DocumentHistory" visible="yes" title="DocumentHistory Class"/>
+    <tab type="user" url="@ref Depage::XmlDb::Indexer" visible="yes" title="Indexer Class"/>
+
+    <tab type="user" url="." title=""/>
+
     <tab type="examples" visible="no" title="Examples" intro=""/>
 
     <tab type="classes" visible="yes" title="Classes">
