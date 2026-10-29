@@ -127,7 +127,7 @@ The handler is notified about every change of the document:
 
 | Method | Called when |
 |---|---|
-| `onAddNode($node, $targetId, $targetPos, $extras)` | a node is added |
+| `onAddNode($node, $targetId, $targetIndex, $extras)` | a node is added |
 | `onCopyNode($nodeId, $copyId)` | a node is copied |
 | `onMoveNode($nodeId, $oldParentId)` | a node is moved |
 | `onDeleteNode($nodeId, $parentId)` | a node is deleted |
@@ -135,7 +135,7 @@ The handler is notified about every change of the document:
 | `onDocumentChange()` | the document has been changed and committed |
 
 ```php
-public function onAddNode(\DomNode $node, $target_id, $target_pos, $extras)
+public function onAddNode(\DomNode $node, $targetId, $targetIndex, $extras)
 {
     $this->updateSearchIndex($node);
 

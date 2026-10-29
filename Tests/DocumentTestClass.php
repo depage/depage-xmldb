@@ -12,22 +12,16 @@ class DocumentTestClass extends \Depage\XmlDb\Document
     }
     // }}}
 
-    // {{{ getPosById
-    public function getPosById($id)
+    // {{{ getAppendIndex
+    public function getAppendIndex($target_id)
     {
-        return parent::getPosById($id);
-    }
-    // }}}
-    // {{{ getTargetPos
-    public function getTargetPos($target_id)
-    {
-        return parent::getTargetPos($target_id);
+        return parent::getAppendIndex($target_id);
     }
     // }}}
     // {{{ saveNodeToDb
-    public function saveNodeToDb($node, $id, $target_id, $target_pos, $set_position = false)
+    public function saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position = false)
     {
-        return parent::saveNodeToDb($node, $id, $target_id, $target_pos, $set_position);
+        return parent::saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position);
     }
     // }}}
     // {{{ getNodeArrayForSaving
@@ -49,9 +43,9 @@ class DocumentTestClass extends \Depage\XmlDb\Document
     }
     // }}}
     // {{{ saveNodeIn
-    public function saveNodeIn($node, $target_id, $target_pos, $inc_children)
+    public function saveNodeIn($node, $target_id, $targetIndex, $inc_children)
     {
-        return parent::saveNodeIn($node, $target_id, $target_pos, $inc_children);
+        return parent::saveNodeIn($node, $target_id, $targetIndex, $inc_children);
     }
     // }}}
     // {{{ saveNodePrivate

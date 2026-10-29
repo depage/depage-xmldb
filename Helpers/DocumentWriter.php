@@ -149,32 +149,32 @@ class DocumentWriter
      *
      * @param $node_id (int) db-id of node
      * @param $target_id (int) db-id of target node
-     * @param $target_pos (int) index the node gets in the child list of the
+     * @param $targetIndex (int) index the node gets in the child list of the
      *        target node, -1 appends it
      *
      * @return   (int) id of old parent node, false if the node was not moved
      */
-    public function moveNode($node_id, $target_id, $target_pos)
+    public function moveNode($node_id, $target_id, $targetIndex)
     {
         $result = false;
         $node_parent_id = $this->host->getParentIdById($node_id);
         $node_index = $this->positions->indexById($node_id);
 
-        // $target_pos is the index the node has after the move; inside its
+        // $targetIndex is the index the node has after the move; inside its
         // own parent the node is not part of the child list that index
         // counts, so it must not be counted there either (a move to the
         // index it already has is then the "no move" case)
-        $target_pos = $this->positions->normalizeIndex(
+        $targetIndex = $this->positions->normalizeIndex(
             $target_id,
-            $target_pos,
+            $targetIndex,
             ($target_id == $node_parent_id) ? $node_id : null
         );
 
-        if ($target_id != $node_parent_id || $target_pos != $node_index) {
+        if ($target_id != $node_parent_id || $targetIndex != $node_index) {
             // with sparse positions the node only has to be reattached
             // between its new neighbours, all other nodes keep their
             // positions
-            $pos = $this->positions->positionForIndex($target_id, $target_pos, $node_id);
+            $pos = $this->positions->positionForIndex($target_id, $targetIndex, $node_id);
 
             $query = $this->pdo->prepare(
                 "UPDATE {$this->table}
@@ -202,16 +202,16 @@ class DocumentWriter
      *
      * @param $node_id (int) db-id of node
      * @param $target_id (int) db-id of target node
-     * @param $target_pos (int) index the copy gets in the child list of the
+     * @param $targetIndex (int) index the copy gets in the child list of the
      *        target node, -1 appends it
      *
      * @return $save_id (int) db-id of the copy
      */
-    public function copyNode($node_id, $target_id, $target_pos)
+    public function copyNode($node_id, $target_id, $targetIndex)
     {
         $xmlDoc = $this->host->getSubdocByNodeId($node_id, false);
         $root_node = $xmlDoc;
-        $save_id = $this->saveNodeIn($root_node, $target_id, $target_pos, true);
+        $save_id = $this->saveNodeIn($root_node, $target_id, $targetIndex, true);
 
         return $save_id;
     }
@@ -256,24 +256,24 @@ class DocumentWriter
 
         if (is_null($rootId)) {
             $target_id = null;
-            $target_pos = 0;
+            $targetIndex = 0;
         } else {
             // set target_id/pos/doc
             $target_id = $this->host->getParentIdById($rootId);
-            $target_pos = $this->positions->indexById($rootId);
+            $targetIndex = $this->positions->indexById($rootId);
 
             if ($target_id === false) {
                 $target_id = null;
             }
-            if ($target_pos === false) {
-                $target_pos = null;
+            if ($targetIndex === false) {
+                $targetIndex = null;
             }
 
             // delete old node
             $this->deleteNode($rootId);
         }
 
-        return $this->saveNodeArray($node_array, $target_id, $target_pos, true);
+        return $this->saveNodeArray($node_array, $target_id, $targetIndex, true);
     }
     // }}}
     // {{{ saveNodeIn
@@ -282,13 +282,13 @@ class DocumentWriter
      *
      * @param $node (domxmlnode) node to save
      * @param $target_id (int) db-id of the node to save the node in
-     * @param $target_pos (int) index the node gets in the child list of
+     * @param $targetIndex (int) index the node gets in the child list of
      *        $target_id, -1 appends it
      * @param $inc_children (bool) whether to save the child nodes too
      *
      * @return (int) db-id the node was saved under
      */
-    public function saveNodeIn($node, $target_id, $target_pos, $inc_children)
+    public function saveNodeIn($node, $target_id, $targetIndex, $inc_children)
     {
         $parent_id = $this->host->getParentIdById($target_id);
 
@@ -314,13 +314,13 @@ class DocumentWriter
 
         // saveNodeToDb turns this index into the position between the
         // neighbours it is inserted at
-        $target_pos = $this->positions->normalizeIndex($target_id, $target_pos);
+        $targetIndex = $this->positions->normalizeIndex($target_id, $targetIndex);
 
         // get all nodes in array
         $node_array = [];
         $this->getNodeArrayForSaving($node_array, $node);
 
-        return $this->saveNodeArray($node_array, $target_id, $target_pos, $inc_children);
+        return $this->saveNodeArray($node_array, $target_id, $targetIndex, $inc_children);
     }
     // }}}
     // {{{ saveNodeArray
@@ -329,7 +329,7 @@ class DocumentWriter
      * when they are free, new nodes are handed out free ids of the
      * preferred range
      */
-    public function saveNodeArray($node_array, $target_id, $target_pos, $inc_children)
+    public function saveNodeArray($node_array, $target_id, $targetIndex, $inc_children)
     {
         $ids = [];
 
@@ -360,7 +360,7 @@ class DocumentWriter
         }
 
         // save root node
-        $node_array[0]['id'] = $this->saveNodeToDb($node_array[0]['node'], $node_array[0]['id'], $target_id, $target_pos, true);
+        $node_array[0]['id'] = $this->saveNodeToDb($node_array[0]['node'], $node_array[0]['id'], $target_id, $targetIndex, true);
         $this->insertNodeQuery = null;
 
         if ($inc_children) {
@@ -534,15 +534,15 @@ class DocumentWriter
      * @param    $node (domxmlnode) node to save
      * @param    $id (int) db-id to save node in
      * @param    $target_id (int) db-id of parent node
-     * @param    $target_pos (int) index the node gets in the child list of
+     * @param    $targetIndex (int) index the node gets in the child list of
      *                     $target_id, -1 appends it
      * @param    $set_position (bool) whether to give the node a position in
      *                     the child list of the target node; without it the
-     *                     node is stored with $target_pos as position
+     *                     node is stored with $targetIndex as position
      *
      * @return    $id (int) db-id under which node has been saved
      */
-    public function saveNodeToDb($node, $id, $target_id, $target_pos, $set_position = false)
+    public function saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position = false)
     {
         if (is_null($this->insertNodeQuery)) {
             $this->insertNodeQuery = $this->pdo->prepare(
@@ -551,7 +551,7 @@ class DocumentWriter
                     id = :id_query,
                     id_parent = :target_id,
                     id_doc = :doc_id,
-                    pos = :target_pos,
+                    pos = :pos,
                     name = :name,
                     value = :value,
                     type = :type
@@ -570,7 +570,7 @@ class DocumentWriter
             // future neighbours, the other children keep theirs; this is
             // done for every node type, a text node stored with the plain
             // index would sort in front of the sparse positions
-            $target_pos = $this->positions->positionForIndex($target_id, $target_pos);
+            $targetIndex = $this->positions->positionForIndex($target_id, $targetIndex);
         }
 
         // same tupel NodeContent calculates the subhashes from
@@ -580,7 +580,7 @@ class DocumentWriter
         $this->insertNodeQuery->execute([
             'id_query' => $id_query,
             'target_id' => $target_id,
-            'target_pos' => $target_pos,
+            'pos' => $targetIndex,
             'name' => $node_name,
             'value' => $node_data,
             'type' => $node_type,

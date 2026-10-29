@@ -24,11 +24,11 @@ use Depage\XmlDb\Exceptions\XmlDbException;
  * renumbered. A child list is rebalanced once the space between two
  * neighbours drops below POS_MIN_GAP.
  *
- * The target positions the callers hand in are the 0-based index a node
- * gets in the child list of its new parent, -1 appends it behind the last
- * child. normalizeIndex() and positionForIndex() are the only ones
- * resolving them (the index counts all child rows, not only the element
- * nodes), callers must not clamp target positions on their own.
+ * The targetIndex the callers hand in is the 0-based index a node gets in
+ * the child list of its new parent, -1 appends it behind the last child.
+ * normalizeIndex() and positionForIndex() are the only ones resolving it
+ * (the index counts all child rows, not only the element nodes), callers
+ * must not clamp target indexes on their own.
  *
  * The methods work inside whatever transaction the caller opened.
  */
@@ -105,7 +105,7 @@ class Positions
     /**
      * gets the children of a parent node in document order without one of
      * them; a node that is moved inside its own parent is not part of the
-     * child list the target position counts
+     * child list the targetIndex counts
      *
      * @param $parent_id (int) db-id of parent node
      * @param $exclude_id (int) db-id of the child to leave out
@@ -132,47 +132,47 @@ class Positions
 
     // {{{ clampIndex
     /**
-     * maps a target position a caller gave to a valid insertion index of a
+     * maps the targetIndex a caller gave to a valid insertion index of a
      * child list; the index counts all child rows (element nodes as well
      * as text nodes and the other node types)
      *
-     * null and negative positions (like -1, "append") are the position
-     * behind the last child, positions beyond the end of the child list
-     * are clamped to it.
+     * null and negative indexes (like -1, "append") are the index behind
+     * the last child, indexes beyond the end of the child list are
+     * clamped to it.
      *
-     * @param $target_pos (int|null) position a caller wants a node at
+     * @param $targetIndex (int|null) index a caller wants a node at
      * @param $num_siblings (int) number of children the index counts
      *
      * @return (int) index a node is inserted at
      */
-    private function clampIndex($target_pos, int $num_siblings): int
+    private function clampIndex($targetIndex, int $num_siblings): int
     {
-        if (!is_numeric($target_pos) || (int) $target_pos < 0) {
+        if (!is_numeric($targetIndex) || (int) $targetIndex < 0) {
             return $num_siblings;
         }
 
-        return min((int) $target_pos, $num_siblings);
+        return min((int) $targetIndex, $num_siblings);
     }
     // }}}
 
     // {{{ normalizeIndex
     /**
      * gets the index a node is inserted at in the child list of a parent
-     * node for the target position a caller asked for; this is the one
-     * place where the target positions of the public api (-1 appends, the
-     * other values are the 0-based index the node gets) are resolved
+     * node for the targetIndex a caller asked for; this is the one place
+     * where the target indexes of the public api (-1 appends, the other
+     * values are the 0-based index the node gets) are resolved
      *
      * @param $parent_id (int) db-id of parent node
-     * @param $target_pos (int|null) position a caller wants the node at
+     * @param $targetIndex (int|null) index a caller wants the node at
      * @param $exclude_id (int) db-id of a child that does not count into
      *        the index (a node that is moved inside its own parent)
      *
      * @return (int) index the node is inserted at
      */
-    public function normalizeIndex($parent_id, $target_pos, $exclude_id = null)
+    public function normalizeIndex($parent_id, $targetIndex, $exclude_id = null)
     {
         return $this->clampIndex(
-            $target_pos,
+            $targetIndex,
             count($this->siblingsWithout($parent_id, $exclude_id))
         );
     }

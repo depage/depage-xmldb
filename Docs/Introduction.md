@@ -212,12 +212,12 @@ $doc->replaceNode($domNode, $idToReplace);             // replace a node
 $doc->deleteNode($id);
 $doc->duplicateNode($id);                             // copy a node, without children
 
-$doc->moveNode($id, $targetId, $targetPos);
+$doc->moveNode($id, $targetId, $targetIndex);
 $doc->moveNodeIn($id, $targetId);                     // move into $targetId
 $doc->moveNodeBefore($id, $targetId);
 $doc->moveNodeAfter($id, $targetId);
 
-$doc->copyNode($id, $targetId, $targetPos);
+$doc->copyNode($id, $targetId, $targetIndex);
 $doc->copyNodeIn($id, $targetId);
 $doc->copyNodeBefore($id, $targetId);
 $doc->copyNodeAfter($id, $targetId);
@@ -226,13 +226,13 @@ $doc->setAttribute($id, 'name', 'home');
 $doc->removeAttribute($id, 'name');
 ```
 
-The target position is the **0-based index the node gets in the list of the
-children of its new parent**, `-1` appends the node at the end and a position
-behind the last child is clamped to the end. The index counts all children of
-the target node, so a text node between two elements counts too — `getIndexById`
-returns the same index a position refers to.
+That last argument is the **targetIndex: the 0-based index the node gets in the
+list of the children of its new parent**. `-1` appends the node at the end and
+an index behind the last child is clamped to the end. The index counts all
+children of the target node, so a text node between two elements counts too —
+`getIndexById()` returns the same index a targetIndex refers to.
 
-The same target position is used by `addNode`, `addNodeByName`, `moveNode` and
+The same targetIndex is used by `addNode`, `addNodeByName`, `moveNode` and
 `copyNode`; `moveNode` and `moveNodeBefore`/`moveNodeAfter` resolve it against
 the child list *without* the node that is moved, so `moveNode($id, $parent, $i)`
 always leaves the node at index `$i`, whether it moves towards the front or the
@@ -245,7 +245,6 @@ $doc->getAttribute($id, 'name');      // value of one attribute or false
 $doc->getAttributes($id);             // all attributes as an array
 $doc->getNodeNameById($id);           // name of the node
 $doc->getParentIdById($id);           // db:id of the parent node
-$doc->getPosById($id);                // position of the node in its parent
 $doc->getIndexById($id);              // index of the node in the children of its parent
 ```
 

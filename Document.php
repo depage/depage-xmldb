@@ -424,24 +424,17 @@ class Document implements Interfaces\DocumentWriterHost
         return $this->getNodeAttributeById($id, 'id_parent');
     }
     // }}}
-    // {{{ getPosById
-    /**
-     * gets node position in its parents childlist by node db-id.
-     *
-     * @param $id (int) node id
-     *
-     * @return $pos (int) position in node parents childlist
-     */
-    public function getPosById($id)
-    {
-        return $this->getNodeAttributeById($id, 'pos');
-    }
-    // }}}
     // {{{ getIndexById
     /**
      * gets the index of a node in the child list of its parent node
-     * (number of siblings before it). in contrast to getPosById this is
-     * the "dense" position, independent of the sparse pos values.
+     * (number of siblings before it); this is the index the targetIndex of
+     * addNode, moveNode and copyNode refers to, so
+     *
+     *   $doc->addNode($node, $parentId, $doc->getIndexById($siblingId));
+     *
+     * adds a node in front of one of its siblings (moveNodeBefore() and
+     * moveNodeAfter() resolve that index for a node that already sits in
+     * the child list)
      *
      * @param $id (int) node db-id
      *
@@ -1028,13 +1021,13 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param $node (\DomNode) node to add
      * @param $target_id (int) db-id of the node to add the node to
-     * @param $target_pos (int) index the node gets in the child list of
+     * @param $targetIndex (int) index the node gets in the child list of
      *        $target_id, -1 appends it
      * @param $extras (array) additional data for the doctype handler
      *
      * @return (int|false) db-id of the added node, false if it was not added
      */
-    public function addNode(\DomNode $node, $target_id, $target_pos = -1, $extras = [])
+    public function addNode(\DomNode $node, $target_id, $targetIndex = -1, $extras = [])
     {
         $dth = $this->getDoctypeHandler();
 
@@ -1042,10 +1035,10 @@ class Document implements Interfaces\DocumentWriterHost
             return false;
         }
 
-        $dth->onAddNode($node, $target_id, $target_pos, $extras);
+        $dth->onAddNode($node, $target_id, $targetIndex, $extras);
 
         return $this->inTransaction(
-            fn() => $this->saveNodeIn($node, $target_id, $target_pos, true)
+            fn() => $this->saveNodeIn($node, $target_id, $targetIndex, true)
         );
     }
     // }}}
@@ -1056,7 +1049,7 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param $name (string) name of the node to create
      * @param $target_id (int) db-id of the node to add the node to
-     * @param $target_pos (int) index the first new node gets in the child
+     * @param $targetIndex (int) index the first new node gets in the child
      *        list of $target_id, the other ones are added behind it, -1
      *        appends all of them
      * @param $extras (array) additional data for the doctype handler
@@ -1064,7 +1057,7 @@ class Document implements Interfaces\DocumentWriterHost
      * @return (int|false) db-id of the last node that was added, false if
      *         the nodes were not added
      */
-    public function addNodeByName($name, $target_id, $target_pos, $extras = [])
+    public function addNodeByName($name, $target_id, $targetIndex, $extras = [])
     {
         $dth = $this->getDoctypeHandler();
         $newNodes = $dth->getNewNodeFor($name);
@@ -1095,11 +1088,11 @@ class Document implements Interfaces\DocumentWriterHost
         // them in. this is read before the adds open their own
         // transactions, the doctype handler hooks of addNode have to run
         // outside of a transaction
-        $target_pos = $this->positions()->normalizeIndex($target_id, $target_pos);
+        $targetIndex = $this->positions()->normalizeIndex($target_id, $targetIndex);
 
         $success = false;
         foreach ($nodes as $index => $node) {
-            $added = $this->addNode($node, $target_id, $target_pos + $index, $extras);
+            $added = $this->addNode($node, $target_id, $targetIndex + $index, $extras);
 
             if ($added === false) {
                 break;
@@ -1126,12 +1119,12 @@ class Document implements Interfaces\DocumentWriterHost
     {
         return $this->inTransaction(function () use ($node, $id_to_replace) {
             $target_id = $this->getParentIdById($id_to_replace);
-            $target_pos = $this->getIndexById($id_to_replace);
+            $targetIndex = $this->getIndexById($id_to_replace);
 
             $this->writer()->deleteNode($id_to_replace);
 
             $changed_ids = [];
-            $changed_ids[] = $this->saveNodeIn($node, $target_id, $target_pos, true);
+            $changed_ids[] = $this->saveNodeIn($node, $target_id, $targetIndex, true);
             $changed_ids[] = $target_id;
 
             return $changed_ids;
@@ -1152,7 +1145,7 @@ class Document implements Interfaces\DocumentWriterHost
     {
         // get parent and position for new node
         $target_id = $this->getParentIdById($node_id);
-        $target_pos = $this->getIndexById($node_id) + 1;
+        $targetIndex = $this->getIndexById($node_id) + 1;
         $dth = $this->getDoctypeHandler();
 
         if (!$dth->isAllowedMove($node_id, $target_id)) {
@@ -1164,7 +1157,7 @@ class Document implements Interfaces\DocumentWriterHost
         $this->clearCache();
 
         $copy_id = $this->inTransaction(
-            fn() => $this->saveNodeIn($xmlDoc, $target_id, $target_pos, $recursive)
+            fn() => $this->saveNodeIn($xmlDoc, $target_id, $targetIndex, $recursive)
         );
 
         $dth->onCopyNode($node_id, $copy_id);
@@ -1179,15 +1172,15 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param    $node_id (int) db-id of node
      * @param    $target_id (int) db-id of target (parent) node
-     * @param    $target_pos (int) index the node gets in the child list of
+     * @param    $targetIndex (int) index the node gets in the child list of
      *           $target_id, -1 appends it
      *
      * @return   (int|false) id of the old parent node, false if the node
      *         was not moved
      */
-    public function moveNode($node_id, $target_id, $target_pos)
+    public function moveNode($node_id, $target_id, $targetIndex)
     {
-        return $this->moveNodeChecked($node_id, $target_id, fn() => $target_pos);
+        return $this->moveNodeChecked($node_id, $target_id, fn() => $targetIndex);
     }
     // }}}
     // {{{ moveNodeIn
@@ -1253,34 +1246,34 @@ class Document implements Interfaces\DocumentWriterHost
      */
     private function indexToMoveTo($node_id, $target_id, $offset = 0)
     {
-        $target_index = (int) $this->getIndexById($target_id);
+        $targetIndex = (int) $this->getIndexById($target_id);
         $node_index = $this->getIndexById($node_id);
 
         if (
             $node_index !== false
             && $this->getParentIdById($node_id) == $this->getParentIdById($target_id)
-            && $node_index < $target_index
+            && $node_index < $targetIndex
         ) {
-            $target_index--;
+            $targetIndex--;
         }
 
-        return max(0, $target_index + $offset);
+        return max(0, $targetIndex + $offset);
     }
     // }}}
     // {{{ moveNodeChecked
     /**
      * moves a node if the doctype handler allows it; the four moveNode*
-     * variants differ only in how they compute the position to move to,
-     * $target_pos resolves it inside the transaction
+     * variants differ only in how they compute the index to move to,
+     * $getIndex resolves it inside the transaction
      *
      * @param    $node_id (int) db-id of node
      * @param    $target_id (int) db-id of the target (parent) node
-     * @param    $target_pos (callable) resolves the index to move to
+     * @param    $getIndex (callable) resolves the index to move to
      *
      * @return   (int|false) id of the old parent node, false if the node
      *         was not moved
      */
-    protected function moveNodeChecked($node_id, $target_id, callable $target_pos)
+    protected function moveNodeChecked($node_id, $target_id, callable $getIndex)
     {
         $dth = $this->getDoctypeHandler();
 
@@ -1289,7 +1282,7 @@ class Document implements Interfaces\DocumentWriterHost
             && $dth->isAllowedMove($node_id, $target_id)
         ) {
             $parent_id = $this->inTransaction(
-                fn() => $this->writer()->moveNode($node_id, $target_id, $target_pos())
+                fn() => $this->writer()->moveNode($node_id, $target_id, $getIndex())
             );
 
             $dth->onMoveNode($node_id, $parent_id);
@@ -1307,14 +1300,14 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param    $node_id (int) db-id of node
      * @param    $target_id (int) db-id of target (parent) node
-     * @param    $target_pos (int) index the copy gets in the child list of
+     * @param    $targetIndex (int) index the copy gets in the child list of
      *           $target_id, -1 appends it
      *
      * @return   (int|false) id of the copy, false if the node was not copied
      */
-    public function copyNode($node_id, $target_id, $target_pos)
+    public function copyNode($node_id, $target_id, $targetIndex)
     {
-        return $this->copyNodeChecked($node_id, $target_id, fn() => $target_pos);
+        return $this->copyNodeChecked($node_id, $target_id, fn() => $targetIndex);
     }
     // }}}
     // {{{ copyNodeIn
@@ -1368,22 +1361,22 @@ class Document implements Interfaces\DocumentWriterHost
     // {{{ copyNodeChecked
     /**
      * copies a node if the doctype handler allows it; the four copyNode*
-     * variants differ only in how they compute the position to copy to,
-     * $target_pos resolves it inside the transaction
+     * variants differ only in how they compute the index to copy to,
+     * $getIndex resolves it inside the transaction
      *
      * @param    $node_id (int) db-id of node
      * @param    $target_id (int) db-id of the target (parent) node
-     * @param    $target_pos (callable) resolves the index to copy to
+     * @param    $getIndex (callable) resolves the index to copy to
      *
      * @return   (int|false) id of the copy, false if it was not made
      */
-    protected function copyNodeChecked($node_id, $target_id, callable $target_pos)
+    protected function copyNodeChecked($node_id, $target_id, callable $getIndex)
     {
         $dth = $this->getDoctypeHandler();
 
         if ($dth->isAllowedCopy($node_id, $target_id)) {
             $copy_id = $this->inTransaction(
-                fn() => $this->writer()->copyNode($node_id, $target_id, $target_pos())
+                fn() => $this->writer()->copyNode($node_id, $target_id, $getIndex())
             );
 
             $dth->onCopyNode($node_id, $copy_id);
@@ -1590,12 +1583,17 @@ class Document implements Interfaces\DocumentWriterHost
         return $row;
     }
     // }}}
-    // {{{ getTargetPos
+    // {{{ getAppendIndex
     /**
-     * gets the index a child would get when appended to the child list,
-     * i.e. the number of current children
+     * gets the index a child would get when it is appended to the child
+     * list of a node, i.e. the number of children it has now; this is the
+     * index -1 as targetIndex stands for
+     *
+     * @param $target_id (int) db-id of parent node
+     *
+     * @return (int) index of an appended child
      */
-    protected function getTargetPos($target_id)
+    protected function getAppendIndex($target_id)
     {
         return $this->positions()->appendIndex($target_id);
     }
@@ -1647,13 +1645,13 @@ class Document implements Interfaces\DocumentWriterHost
      *
      * @param $node (domxmlnode) node to save
      * @param $target_id (int) db-id of the node to save the node in
-     * @param $target_pos (int) index the node gets in the child list of
+     * @param $targetIndex (int) index the node gets in the child list of
      *        $target_id, -1 appends it
      * @param $inc_children (bool) whether to save the child nodes too
      */
-    protected function saveNodeIn($node, $target_id, $target_pos, $inc_children)
+    protected function saveNodeIn($node, $target_id, $targetIndex, $inc_children)
     {
-        return $this->writer()->saveNodeIn($node, $target_id, $target_pos, $inc_children);
+        return $this->writer()->saveNodeIn($node, $target_id, $targetIndex, $inc_children);
     }
     // }}}
     // {{{ getNodeArrayForSaving
@@ -1679,16 +1677,16 @@ class Document implements Interfaces\DocumentWriterHost
      * @param    $node (domxmlnode) node to save
      * @param    $id (int) db-id to save node in
      * @param    $target_id (int) db-id of parent node
-     * @param    $target_pos (int) index the node gets in the child list of
+     * @param    $targetIndex (int) index the node gets in the child list of
      *           $target_id, -1 appends it
      * @param    $set_position (bool) whether to give the node a position in
      *           the child list of the target node
      *
      * @return    $id (int) db-id under which node has been saved
      */
-    protected function saveNodeToDb($node, $id, $target_id, $target_pos, $set_position = false)
+    protected function saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position = false)
     {
-        return $this->writer()->saveNodeToDb($node, $id, $target_id, $target_pos, $set_position);
+        return $this->writer()->saveNodeToDb($node, $id, $target_id, $targetIndex, $set_position);
     }
     // }}}
     // {{{ inTransaction

@@ -585,25 +585,25 @@ class DocumentTest extends XmlDbTestCase
     }
     // }}}
 
-    // {{{ testGetPosById
-    public function testGetPosById()
+    // {{{ testGetIndexById
+    public function testGetIndexById()
     {
-        $this->assertEquals(0, $this->doc->getPosById(2));
+        $this->assertEquals(0, $this->doc->getIndexById(2));
     }
     // }}}
-    // {{{ testGetPosByIdFail
-    public function testGetPosByIdFail()
+    // {{{ testGetIndexByIdFail
+    public function testGetIndexByIdFail()
     {
         // there's no node with id 999
-        $this->assertFalse($this->doc->getPosById(999));
+        $this->assertFalse($this->doc->getIndexById(999));
     }
     // }}}
 
-    // {{{ testGetTargetPos
-    public function testGetTargetPos()
+    // {{{ testGetAppendIndex
+    public function testGetAppendIndex()
     {
-        $this->assertEquals(2, $this->doc->getTargetPos(6));
-        $this->assertEquals(0, $this->doc->getTargetPos(7));
+        $this->assertEquals(2, $this->doc->getAppendIndex(6));
+        $this->assertEquals(0, $this->doc->getAppendIndex(7));
     }
     // }}}
 
@@ -1041,7 +1041,7 @@ class DocumentTest extends XmlDbTestCase
 
         // sibling positions are unique now, the entity has to go in behind
         // the existing child of node 4
-        $pos = $this->doc->getTargetPos(4);
+        $pos = $this->doc->getAppendIndex(4);
         $this->assertGreaterThanOrEqual(37, $this->doc->saveNodeToDb($nodeElement, 37, 4, $pos));
 
         $expectedNode = [

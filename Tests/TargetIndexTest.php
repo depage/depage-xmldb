@@ -5,20 +5,20 @@ namespace Depage\XmlDb\Tests;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * tests for the target positions of the methods that place a node in the
+ * tests for the target indexes of the methods that place a node in the
  * child list of another node (addNode, addNodeByName, saveNodeIn, moveNode,
  * copyNode, duplicateNode, replaceNode)
  *
- * a target position is the 0-based index the node gets in the child list of
+ * a targetIndex is the 0-based index the node gets in the child list of
  * its new parent, -1 appends it and an index behind the last child is
  * clamped to the end.
  *
  * document 5 of the dataset is used for this, node 17 of it has seven
  * element children (ids 18, 19, 22, 23, 24, 25, 26) and no text nodes
- * between them, so the index a target position refers to is the plain number
+ * between them, so the index a targetIndex refers to is the plain number
  * of the child in the child list.
  */
-class TargetPositionTest extends XmlDbTestCase
+class TargetIndexTest extends XmlDbTestCase
 {
     // {{{ variables
     protected $xmlDb;
@@ -121,15 +121,32 @@ class TargetPositionTest extends XmlDbTestCase
     }
     // }}}
 
+    // {{{ getPosValue
+    /**
+     * the value of the pos column a node is stored with; the library only
+     * exposes the index of a node in its child list (getIndexById), which
+     * is what a targetIndex refers to, so the sparse value is read here
+     */
+    protected function getPosValue($id): int
+    {
+        $query = $this->pdo->prepare(
+            "SELECT pos FROM {$this->xmlTree} WHERE id_doc = 5 AND id = ?"
+        );
+        $query->execute([$id]);
+
+        return (int) $query->fetchColumn();
+    }
+    // }}}
+
     // {{{ addPage
     /**
      * adds an element node below node 17 and returns its db-id
      */
-    protected function addPage(string $name, $target_pos)
+    protected function addPage(string $name, $targetIndex)
     {
         $dom = $this->generateDomDocument("<page name=\"$name\"/>");
 
-        return $this->doc->addNode($dom->documentElement, self::PARENT_ID, $target_pos);
+        return $this->doc->addNode($dom->documentElement, self::PARENT_ID, $targetIndex);
     }
     // }}}
 
@@ -150,13 +167,13 @@ class TargetPositionTest extends XmlDbTestCase
     }
     // }}}
 
-    // {{{ provideTargetPosition
+    // {{{ provideTargetIndex
     /**
-     * target positions to place a new node in the child list of node 17 with
+     * target indexes to place a new node in the child list of node 17 with
      * the index the node has to end up at, run on the child list of the
      * dataset and on a rebalanced (sparse) one
      */
-    public static function provideTargetPosition()
+    public static function provideTargetIndex()
     {
         $positions = [
             'append (-1)' => [-1, 7],
@@ -172,9 +189,9 @@ class TargetPositionTest extends XmlDbTestCase
 
         $cases = [];
         foreach ([false, true] as $rebalanced) {
-            foreach ($positions as $name => [$target_pos, $expected]) {
+            foreach ($positions as $name => [$targetIndex, $expected]) {
                 $cases[$name . ($rebalanced ? ', sparse list' : ', dense list')] = [
-                    $target_pos,
+                    $targetIndex,
                     $expected,
                     $rebalanced,
                 ];
@@ -185,13 +202,13 @@ class TargetPositionTest extends XmlDbTestCase
     }
     // }}}
 
-    // {{{ testAddNodeInsertsAtTheTargetPosition
+    // {{{ testAddNodeInsertsAtTheTargetIndex
     /**
-     * adding a node puts it at the index the target position names and
+     * adding a node puts it at the index the targetIndex names and
      * leaves the order of the other children alone
      */
-    #[DataProvider('provideTargetPosition')]
-    public function testAddNodeInsertsAtTheTargetPosition($target_pos, $expected_index, $rebalanced)
+    #[DataProvider('provideTargetIndex')]
+    public function testAddNodeInsertsAtTheTargetIndex($targetIndex, $expected_index, $rebalanced)
     {
         if ($rebalanced) {
             // the dataset stores its positions dense, as an old version of
@@ -199,7 +216,7 @@ class TargetPositionTest extends XmlDbTestCase
             $this->doc->rebalancePositions(self::PARENT_ID);
         }
 
-        $id = $this->addPage('new', $target_pos);
+        $id = $this->addPage('new', $targetIndex);
 
         $this->assertIsNumeric($id, 'the node was not added');
 
@@ -236,8 +253,8 @@ class TargetPositionTest extends XmlDbTestCase
      * the order the handler returns them in, whether they are inserted in
      * the middle of the child list or appended to it
      */
-    #[DataProvider('provideTargetPosition')]
-    public function testAddNodeByNameKeepsTheOrderOfTheNewNodes($target_pos, $expected_index, $rebalanced)
+    #[DataProvider('provideTargetIndex')]
+    public function testAddNodeByNameKeepsTheOrderOfTheNewNodes($targetIndex, $expected_index, $rebalanced)
     {
         $this->setMultiNodeDoctypeHandler();
 
@@ -245,7 +262,7 @@ class TargetPositionTest extends XmlDbTestCase
             $this->doc->rebalancePositions(self::PARENT_ID);
         }
 
-        $success = $this->doc->addNodeByName('threePages', self::PARENT_ID, $target_pos);
+        $success = $this->doc->addNodeByName('threePages', self::PARENT_ID, $targetIndex);
 
         $this->assertIsNumeric($success, 'the nodes were not added');
 
@@ -273,12 +290,12 @@ class TargetPositionTest extends XmlDbTestCase
     }
     // }}}
 
-    // {{{ testSaveNodeInInsertsAtTheTargetPosition
+    // {{{ testSaveNodeInInsertsAtTheTargetIndex
     /**
      * saveNodeIn places a subtree with children at the index the target
      * position names
      */
-    public function testSaveNodeInInsertsAtTheTargetPosition()
+    public function testSaveNodeInInsertsAtTheTargetIndex()
     {
         $this->doc->rebalancePositions(self::PARENT_ID);
 
@@ -294,13 +311,13 @@ class TargetPositionTest extends XmlDbTestCase
     }
     // }}}
 
-    // {{{ testSaveNodeInInsertsATextNodeAtTheTargetPosition
+    // {{{ testSaveNodeInInsertsATextNodeAtTheTargetIndex
     /**
      * a node that is not an element is stored with a sparse position too:
-     * storing it with the plain index of the target position would sort it
+     * storing it with the plain index of the target would sort it
      * in front of the siblings that were placed with a gap between them
      */
-    public function testSaveNodeInInsertsATextNodeAtTheTargetPosition()
+    public function testSaveNodeInInsertsATextNodeAtTheTargetIndex()
     {
         $this->doc->rebalancePositions(self::PARENT_ID);
 
@@ -315,7 +332,7 @@ class TargetPositionTest extends XmlDbTestCase
     // {{{ provideMove
     /**
      * the node to move (by its index in the child list of node 17) and the
-     * target position to move it to, with the index it has to end up at
+     * target index to move it to, with the index it has to end up at
      */
     public static function provideMove()
     {
@@ -335,20 +352,20 @@ class TargetPositionTest extends XmlDbTestCase
     }
     // }}}
 
-    // {{{ testMoveNodeInsertsAtTheTargetPosition
+    // {{{ testMoveNodeInsertsAtTheTargetIndex
     /**
-     * moving a node leaves it at the index the target position names,
+     * moving a node leaves it at the index the targetIndex names,
      * whether it moves towards the front or the back of its own child list
      * or into another one
      */
     #[DataProvider('provideMove')]
-    public function testMoveNodeInsertsAtTheTargetPosition($from, $target_pos, $expected_index)
+    public function testMoveNodeInsertsAtTheTargetIndex($from, $targetIndex, $expected_index)
     {
         $node_id = self::CHILDREN[$from];
 
         $this->assertSame($from, $this->doc->getIndexById($node_id));
 
-        $this->doc->moveNode($node_id, self::PARENT_ID, $target_pos);
+        $this->doc->moveNode($node_id, self::PARENT_ID, $targetIndex);
 
         $this->assertSame($expected_index, $this->doc->getIndexById($node_id));
         $this->assertCount(7, $this->getChildIds());
@@ -377,7 +394,7 @@ class TargetPositionTest extends XmlDbTestCase
         $children = $this->getChildIds();
         $positions = [];
         foreach ($children as $id) {
-            $positions[$id] = $this->doc->getPosById($id);
+            $positions[$id] = $this->getPosValue($id);
         }
 
         $this->assertFalse($this->doc->moveNode(22, self::PARENT_ID, 2));
@@ -386,7 +403,7 @@ class TargetPositionTest extends XmlDbTestCase
         foreach ($children as $id) {
             $this->assertSame(
                 $positions[$id],
-                $this->doc->getPosById($id),
+                $this->getPosValue($id),
                 "the position of node {$id} changed"
             );
         }
@@ -458,13 +475,13 @@ class TargetPositionTest extends XmlDbTestCase
     }
     // }}}
 
-    // {{{ testCopyNodeInsertsAtTheTargetPosition
+    // {{{ testCopyNodeInsertsAtTheTargetIndex
     /**
      */
     #[DataProvider('provideCopy')]
-    public function testCopyNodeInsertsAtTheTargetPosition($target_pos, $expected)
+    public function testCopyNodeInsertsAtTheTargetIndex($targetIndex, $expected)
     {
-        $copy_id = $this->doc->copyNode(18, self::PARENT_ID, $target_pos);
+        $copy_id = $this->doc->copyNode(18, self::PARENT_ID, $targetIndex);
 
         $this->assertIsNumeric($copy_id, 'the node was not copied');
 

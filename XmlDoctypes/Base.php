@@ -247,15 +247,15 @@ class Base implements DoctypeInterface
     /**
      * called when a node is added to the document
      *
-     * @param   \DomNode  $node       the new node
-     * @param   int       $target_id  db-id of the target node
-     * @param   int       $target_pos  index the node gets in the child list
+     * @param   \DomNode  $node        the new node
+     * @param   int       $targetId    db-id of the target node
+     * @param   int       $targetIndex index the node gets in the child list
      *                                 of the target node (-1 appends it)
-     * @param   array     $extras     additional data of the caller
+     * @param   array     $extras      additional data of the caller
      *
      * @return  bool  true if the node may be added
      */
-    public function onAddNode(\DomNode $node, $target_id, $target_pos, $extras)
+    public function onAddNode(\DomNode $node, $targetId, $targetIndex, $extras)
     {
         return true;
     }

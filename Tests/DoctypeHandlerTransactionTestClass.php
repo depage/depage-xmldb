@@ -11,12 +11,12 @@ class DoctypeHandlerTransactionTestClass extends DoctypeHandlerTestClass
     public $onDocumentChange = 0;
 
     // {{{ onAddNode
-    public function onAddNode(\DomNode $node, $target_id, $target_pos, $extras)
+    public function onAddNode(\DomNode $node, $targetId, $targetIndex, $extras)
     {
         $this->transactionTest('onAddNode');
         $this->onAddNode++;
 
-        return parent::onAddNode($node, $target_id, $target_pos, $extras);
+        return parent::onAddNode($node, $targetId, $targetIndex, $extras);
     }
     // }}}
     // {{{ onCopyNode
