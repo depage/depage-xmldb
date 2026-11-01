@@ -38,6 +38,16 @@
     </tab>
     <tab type="pages" visible="no" title="" intro=""/>
     <tab type="modules" visible="no" title="" intro=""/>
+
+    <tab type="user" url="." title=""/>
+
+    <tab type="user" url="https://github.com/depage/depage-xmldb" title="GitHub"/>
+    <tab type="user" url="https://github.com/depage/depage-xmldb/issues" title="Issues"/>
+
+    <tab type="user" url="." title=""/>
+
+    <tab type="user" url="https://docs.depage.net" title="docs.depage.net"/>
+
   </navindex>
 
   <!-- Layout definition for a class page -->
