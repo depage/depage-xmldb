@@ -37,6 +37,19 @@ class DocumentWriter
      * statements wrote rows (it must not stay open over them)
      */
     private $insertNodeQuery = null;
+
+    /**
+     * placeholder ids of the nodes that were saved with a new database
+     * id, keyed by the placeholder id and valued with the database id
+     * the node was stored with
+     *
+     * the editor hands out negative ids for the nodes it creates, so
+     * that it can tell them apart from the database ids of the stored
+     * nodes; after the save it reads the mapping from here to replace
+     * the placeholders with the database ids (Document::
+     * getLastPatchIdMap())
+     */
+    protected $idMap = [];
     // }}}
 
     // {{{ __construct
@@ -87,6 +100,38 @@ class DocumentWriter
         }
 
         return $free;
+    }
+    // }}}
+    // {{{ getIdMap
+    /**
+     * the placeholder ids of the nodes that were saved with a new
+     * database id, keyed by the placeholder id and valued with the
+     * database id the node was stored with
+     */
+    public function getIdMap(): array
+    {
+        return $this->idMap;
+    }
+    // }}}
+    // {{{ resetIdMap
+    /**
+     * forgets the placeholder ids of the nodes saved before, so that the
+     * map only holds the nodes of the current save
+     */
+    public function resetIdMap(): void
+    {
+        $this->idMap = [];
+    }
+    // }}}
+    // {{{ isPlaceholderId
+    /**
+     * whether an id is a placeholder for a node that does not exist in
+     * the database (yet); the editor hands out negative ids for the
+     * nodes it creates — such an id is never written to the database
+     */
+    protected function isPlaceholderId($id): bool
+    {
+        return !is_null($id) && is_numeric($id) && (int) $id < 0;
     }
     // }}}
 
@@ -333,7 +378,15 @@ class DocumentWriter
     {
         $ids = [];
 
-        foreach ($nodeArray as $node) {
+        foreach ($nodeArray as $i => $node) {
+            if ($this->isPlaceholderId($node['id'])) {
+                // a placeholder id marks a node that does not exist in
+                // the database (yet) — it is stored with a new id
+                $nodeArray[$i]['id'] = null;
+
+                continue;
+            }
+
             if ($node['id']) {
                 $ids[] = $node['id'];
             }
@@ -361,6 +414,7 @@ class DocumentWriter
 
         // save root node
         $nodeArray[0]['id'] = $this->saveNodeToDb($nodeArray[0]['node'], $nodeArray[0]['id'], $targetId, $targetIndex, true);
+        $this->addToIdMap($nodeArray[0]);
         $this->insertNodeQuery = null;
 
         if ($incChildren) {
@@ -447,6 +501,8 @@ class DocumentWriter
         foreach ($resolvedIds as $index => $id) {
             $nodeArray[$index]['id'] = $id;
 
+            $this->addToIdMap($nodeArray[$index]);
+
             if ($nodeArray[$index]['node']->nodeType == XML_ELEMENT_NODE) {
                 $nodeArray[$index]['node']->setAttributeNS(
                     $this->dbNs->uri,
@@ -455,6 +511,28 @@ class DocumentWriter
                 );
             }
         }
+    }
+    // }}}
+    // {{{ addToIdMap
+    /**
+     * remembers the database id a node with a placeholder id was stored
+     * with, so that the caller can replace the placeholder with the
+     * database id
+     *
+     * @param $node (array) node of the list of nodes to save, as built
+     *        by getNodeArrayForSaving
+     */
+    protected function addToIdMap($node): void
+    {
+        if (!isset($node['id_old']) || !isset($node['id'])) {
+            return;
+        }
+
+        if (!$this->isPlaceholderId($node['id_old']) || is_null($node['id'])) {
+            return;
+        }
+
+        $this->idMap[(int) $node['id_old']] = (int) $node['id'];
     }
     // }}}
     // {{{ getNodeArrayForSaving

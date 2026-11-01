@@ -294,6 +294,79 @@ class PatchPlannerTest extends XmlDbTestCase
         $this->assertCount(0, $plan['updates']);
     }
     // }}}
+    // {{{ testPlaceholderNodeIsPlannedAsInsert
+    /**
+     * a node with a negative db:id is a placeholder for a node that does
+     * not exist in the database (yet) — it is planned as an insert and it
+     * does not take the place of a leftover row of its parent
+     */
+    public function testPlaceholderNodeIsPlannedAsInsert()
+    {
+        $dom = $this->resave();
+
+        $page = $this->elementByName($dom, 'Home3');
+        $pageId = $this->dbIdOf($page);
+
+        // remove a child, so that a leftover row is left over
+        $removed = $this->elementByName($dom, 'P3.2');
+        $removedId = $this->dbIdOf($removed);
+        $removed->parentNode->removeChild($removed);
+
+        // add a new child with a placeholder id
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-1');
+        $new->appendChild($dom->createTextNode('new page'));
+        $page->appendChild($new);
+
+        $plan = $this->planner()->plan($this->nodeArrayFor($dom));
+
+        $this->assertNotNull($plan);
+
+        // the placeholder is inserted ...
+        $this->assertCount(1, $plan['inserts']);
+        $this->assertEquals($pageId, $plan['inserts'][0]['parent_id']);
+
+        // ... and the leftover row is deleted instead of being renamed to
+        // the placeholder node
+        $this->assertEquals([$removedId], $plan['deletes']);
+        $this->assertCount(0, $plan['updates']);
+
+        $this->assertArrayHasKey($pageId, $plan['renumber']);
+    }
+    // }}}
+    // {{{ testPlaceholderNodeDoesNotChangeTheStoredValues
+    /**
+     * the placeholder id is not part of the stored value of a node, so it
+     * does not change the hash of the node it belongs to
+     */
+    public function testPlaceholderNodeDoesNotChangeTheStoredValues()
+    {
+        $dom = $this->resave();
+
+        $page = $this->elementByName($dom, 'Home3');
+
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-1');
+        $new->appendChild($dom->createTextNode('new page'));
+        $page->appendChild($new);
+
+        $nodeArray = $this->nodeArrayFor($dom);
+        $plan = $this->planner()->plan($nodeArray);
+
+        $this->assertNotNull($plan);
+        $this->assertCount(1, $plan['inserts']);
+
+        // the value of the inserted node does not mention its id
+        $inserted = $plan['inserts'][0]['node'];
+        $content = \Depage\XmlDb\Helpers\NodeContent::fromDomNode(
+            $inserted,
+            new XmlNs('db', 'http://cms.depagecms.net/ns/database'),
+            'id'
+        );
+
+        $this->assertStringNotContainsString('id=', $content[2]);
+    }
+    // }}}
     // {{{ testReplacedRootIsRejectedOnlyWithCheckRoot
     /**
      * a root that keeps its db:id but is not compatible with the row that

@@ -741,6 +741,8 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function save(\DomDocument $xml)
     {
+        $this->writer()->resetIdMap();
+
         return $this->inTransaction(function () use ($xml) {
             $docInfo = $this->clearDoc();
 
@@ -781,6 +783,11 @@ class Document implements Interfaces\DocumentWriterHost
      * are matched against the leftover children of their parent by
      * position.
      *
+     * elements with a negative db:id are placeholders for nodes that do
+     * not exist in the database (yet); they are inserted with a new id
+     * and the mapping from the placeholders to the new ids is returned by
+     * getLastPatchIdMap().
+     *
      * a full save() is done instead when the root node was replaced, when
      * the document carries no database ids or when more than
      * PATCH_MAX_CHANGE_RATIO of the nodes changed.
@@ -795,6 +802,8 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function savePatch(\DomDocument $xml)
     {
+        $this->writer()->resetIdMap();
+
         $docInfo = $this->getDocInfo();
         $plan = null;
 
@@ -841,6 +850,30 @@ class Document implements Interfaces\DocumentWriterHost
     public function getLastPatchStats()
     {
         return $this->lastPatchStats;
+    }
+    // }}}
+    // {{{ getLastPatchIdMap
+    /**
+     * the placeholder ids of the nodes that were saved with a new
+     * database id, keyed by the placeholder id and valued with the
+     * database id the node was stored with
+     *
+     * the editor hands out negative ids for the nodes it creates — they
+     * are never written to the database, the nodes are stored with new
+     * ids instead; the caller reads the mapping from here to replace
+     * the placeholders with the database ids, so that the following
+     * saves can match the nodes by their database id
+     *
+     * the map is empty when the last save did not store any node with a
+     * placeholder id
+     */
+    public function getLastPatchIdMap(): array
+    {
+        if (is_null($this->writer)) {
+            return [];
+        }
+
+        return $this->writer->getIdMap();
     }
     // }}}
     // {{{ planPatch
@@ -962,6 +995,8 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function saveNode($node)
     {
+        $this->writer()->resetIdMap();
+
         return $this->inTransaction(
             fn() => $this->saveNodePrivate($node)
         );
@@ -981,6 +1016,11 @@ class Document implements Interfaces\DocumentWriterHost
      * without a db:id are matched against the leftover children of their
      * parent by position.
      *
+     * elements with a negative db:id are placeholders for nodes that do
+     * not exist in the database (yet); they are inserted with a new id
+     * and the mapping from the placeholders to the new ids is returned by
+     * getLastPatchIdMap().
+     *
      * a full saveNode() is done instead when the root node carries no
      * database id, when it replaces the node its id points to or when
      * more than PATCH_MAX_CHANGE_RATIO of the nodes of the subtree
@@ -995,6 +1035,8 @@ class Document implements Interfaces\DocumentWriterHost
      */
     public function saveNodePatch($node)
     {
+        $this->writer()->resetIdMap();
+
         $plan = $this->planNodePatch($node, true);
 
         if (is_null($plan)) {

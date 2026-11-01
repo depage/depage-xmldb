@@ -331,6 +331,58 @@ class SavePatchTest extends XmlDbTestCase
         $this->assertStringContainsString('name="P3.2 renamed"', $after[8]['value']);
     }
     // }}}
+    // {{{ testPatchInsertWithPlaceholderId
+    /**
+     * a node with a negative db:id is a placeholder for a node that does
+     * not exist in the database (yet) — it is inserted with a new id, it
+     * does not take the place of a leftover child of its parent and the
+     * mapping from the placeholder to the new id is reported
+     */
+    public function testPatchInsertWithPlaceholderId()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+
+        // remove a child, so that a leftover row is left over
+        $page = $this->findPage($dom, 'P3.2');
+        $this->assertNotNull($page);
+        $page->parentNode->removeChild($page);
+
+        // add a new child with a placeholder id
+        $home = $this->findPage($dom, 'Home3');
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-1');
+        $new->appendChild($dom->createTextNode('new page'));
+        $home->appendChild($new);
+
+        $this->doc->savePatch($dom);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+        $this->assertSame(1, $stats['inserts']);
+        $this->assertSame(1, $stats['deletes']);
+
+        // the placeholder is mapped to the id the node was stored with
+        $idMap = $this->doc->getLastPatchIdMap();
+        $this->assertArrayHasKey(-1, $idMap);
+
+        $newId = $idMap[-1];
+        $this->assertGreaterThan(0, $newId);
+
+        $rows = $this->getNodeRows();
+
+        // the leftover row was deleted, the placeholder got a new row
+        $this->assertFalse(isset($rows[8]));
+        $this->assertArrayHasKey($newId, $rows);
+        $this->assertSame('pg:page', $rows[$newId]['name']);
+
+        // no row was stored with a negative id
+        foreach (array_keys($rows) as $id) {
+            $this->assertGreaterThan(0, $id, "node {$id} must not have a negative id");
+        }
+    }
+    // }}}
     // {{{ testPatchFallsBackOnReplacedRoot
     public function testPatchFallsBackOnReplacedRoot()
     {

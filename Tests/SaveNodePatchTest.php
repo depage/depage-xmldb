@@ -349,6 +349,92 @@ class SaveNodePatchTest extends XmlDbTestCase
         }
     }
     // }}}
+    // {{{ testPatchSubtreeInsertWithPlaceholderId
+    /**
+     * a node with a negative db:id is a placeholder for a node that does
+     * not exist in the database (yet) — it is stored with a new id, the
+     * mapping from the placeholder to the new id is reported and no row
+     * is stored with a negative id
+     */
+    public function testPatchSubtreeInsertWithPlaceholderId()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+        $p31 = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($p31);
+
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-1');
+        $new->appendChild($dom->createTextNode('new page'));
+        $p31->appendChild($new);
+
+        $this->assertSame(6, $this->doc->saveNodePatch($p31));
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+        $this->assertSame(1, $stats['inserts']);
+
+        // the placeholder is mapped to the id the node was stored with
+        $idMap = $this->doc->getLastPatchIdMap();
+        $this->assertArrayHasKey(-1, $idMap);
+
+        $newId = $idMap[-1];
+        $this->assertGreaterThan(0, $newId);
+
+        // the dom carries the new id now, so the caller can replace the
+        // placeholder with it
+        $this->assertSame(
+            $newId,
+            (int) $new->getAttributeNS('http://cms.depagecms.net/ns/database', 'id')
+        );
+
+        // the node is a child of the patched node now
+        $this->assertContains($newId, $this->childIdsOf(6));
+
+        // and no row was stored with a negative id
+        foreach (array_keys($this->getNodeRows()) as $id) {
+            $this->assertGreaterThan(0, $id, "node {$id} must not have a negative id");
+        }
+    }
+    // }}}
+    // {{{ testPatchSubtreeFallbackReportsPlaceholderIds
+    /**
+     * when the patch falls back to a full saveNode(), the nodes with a
+     * placeholder id are stored with new ids as well and the mapping from
+     * the placeholders to the new ids is reported
+     */
+    public function testPatchSubtreeFallbackReportsPlaceholderIds()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+        $p31 = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($p31);
+
+        // a root without a db:id can not be patched, the call falls back
+        // to a full save
+        $p31->removeAttributeNS('http://cms.depagecms.net/ns/database', 'id');
+
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-2');
+        $new->appendChild($dom->createTextNode('new page'));
+        $p31->appendChild($new);
+
+        $this->doc->saveNodePatch($p31);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertTrue($stats['fallback']);
+
+        $idMap = $this->doc->getLastPatchIdMap();
+        $this->assertArrayHasKey(-2, $idMap);
+        $this->assertGreaterThan(0, $idMap[-2]);
+
+        foreach (array_keys($this->getNodeRows()) as $id) {
+            $this->assertGreaterThan(0, $id, "node {$id} must not have a negative id");
+        }
+    }
+    // }}}
     // {{{ testPatchSubtreeFallsBackOnReplacedRoot
     /**
      * an element carrying the db:id of a node of another name replaced

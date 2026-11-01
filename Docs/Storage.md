@@ -165,6 +165,23 @@ The planning is done by `Patch\PatchPlanner`, the writing by
 `Document::getLastPatchStats()` returns the number of nodes that were skipped,
 updated, inserted or deleted by the last call.
 
+## Placeholder ids
+
+A caller that creates nodes itself — the editor of the cms does, for the nodes
+the user writes — can mark them with a **negative** `db:id`. Such an id is a
+placeholder for a node that does not exist in the database (yet):
+
+- a placeholder id is never matched with a stored node, neither by its id nor
+  by its position — the node is always inserted,
+- a placeholder id is never written to the database, the node is stored with a
+  new id,
+- `Document::getLastPatchIdMap()` returns the mapping from the placeholder ids
+  to the ids the nodes were stored with, so that the caller can replace the
+  placeholders with the database ids. The following saves then match the nodes
+  by their database id.
+
+The mapping is also filled when a patch falls back to a full save.
+
 ## Batched writes
 
 Rows are not written one by one:

@@ -218,9 +218,19 @@ class PatchPlanner
 
             $pairOfNew = [];
             $usedOld = [];
+            $placeholderNew = [];
 
             foreach ($newKids as $newIndex) {
                 $id = $nodeArray[$newIndex]['id'];
+
+                if ($this->isPlaceholderId($id)) {
+                    // a placeholder id marks a node that does not exist
+                    // in the database (yet) — it is always inserted and
+                    // never matched against a stored row
+                    $placeholderNew[] = $newIndex;
+
+                    continue;
+                }
 
                 // elements without a db:id have an empty id, other node
                 // types have no id at all
@@ -235,6 +245,10 @@ class PatchPlanner
             // replacement of one node by the other
             $restNew = array_values(array_diff($newKids, array_keys($pairOfNew)));
             $restOld = array_values(array_diff(array_keys($oldKids), array_keys($usedOld)));
+
+            // the placeholder nodes are new nodes — they must not
+            // consume one of the leftover rows
+            $restNew = array_values(array_diff($restNew, $placeholderNew));
 
             $insertNew = [];
             $deleteOld = [];
@@ -251,6 +265,7 @@ class PatchPlanner
                 }
             }
             $insertNew = array_merge($insertNew, $restNew);
+            $insertNew = array_merge($insertNew, $placeholderNew);
             $deleteOld = array_merge($deleteOld, $restOld);
 
             foreach ($deleteOld as $oldPos) {
@@ -337,6 +352,22 @@ class PatchPlanner
     protected function nodesCompatible(array $content, $row): bool
     {
         return $content[0] == $row->type && (string) ($content[1] ?? '') === (string) ($row->name ?? '');
+    }
+    // }}}
+    // {{{ isPlaceholderId
+    /**
+     * whether an id is a placeholder for a node that does not exist in
+     * the database (yet); the editor hands out negative ids for the
+     * nodes it creates, so that they can be told apart from the
+     * database ids of the stored nodes
+     *
+     * a placeholder id is never written to the database — the node is
+     * stored with a new id, which the caller can read from the id map
+     * of the writer (Document::getLastPatchIdMap())
+     */
+    protected function isPlaceholderId($id): bool
+    {
+        return !is_null($id) && is_numeric($id) && (int) $id < 0;
     }
     // }}}
 }
