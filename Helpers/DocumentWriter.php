@@ -39,15 +39,16 @@ class DocumentWriter
     private $insertNodeQuery = null;
 
     /**
-     * placeholder ids of the nodes that were saved with a new database
-     * id, keyed by the placeholder id and valued with the database id
-     * the node was stored with
+     * ids of the nodes that were saved with a new database id, keyed
+     * by the id the node carried and valued with the database id the
+     * node was stored with
      *
      * the editor hands out negative ids for the nodes it creates, so
      * that it can tell them apart from the database ids of the stored
-     * nodes; after the save it reads the mapping from here to replace
-     * the placeholders with the database ids (Document::
-     * getLastPatchIdMap())
+     * nodes; a positive id can not be used either when it already
+     * belongs to another node; after the save the caller reads the
+     * mapping from here to replace the ids with the database ids
+     * (Document::getLastPatchIdMap())
      */
     protected $idMap = [];
     // }}}
@@ -104,9 +105,9 @@ class DocumentWriter
     // }}}
     // {{{ getIdMap
     /**
-     * the placeholder ids of the nodes that were saved with a new
-     * database id, keyed by the placeholder id and valued with the
-     * database id the node was stored with
+     * the ids of the nodes that were saved with a new database id,
+     * keyed by the id the node carried and valued with the database
+     * id the node was stored with
      */
     public function getIdMap(): array
     {
@@ -115,7 +116,7 @@ class DocumentWriter
     // }}}
     // {{{ resetIdMap
     /**
-     * forgets the placeholder ids of the nodes saved before, so that the
+     * forgets the ids of the nodes saved before, so that the
      * map only holds the nodes of the current save
      */
     public function resetIdMap(): void
@@ -515,9 +516,9 @@ class DocumentWriter
     // }}}
     // {{{ addToIdMap
     /**
-     * remembers the database id a node with a placeholder id was stored
-     * with, so that the caller can replace the placeholder with the
-     * database id
+     * remembers the database id a node was stored with when the id it
+     * carried could not be used, so that the caller can replace the id
+     * with the database id
      *
      * @param $node (array) node of the list of nodes to save, as built
      *        by getNodeArrayForSaving
@@ -528,11 +529,20 @@ class DocumentWriter
             return;
         }
 
-        if (!$this->isPlaceholderId($node['id_old']) || is_null($node['id'])) {
+        if (!is_numeric($node['id_old']) || is_null($node['id'])) {
             return;
         }
 
-        $this->idMap[(int) $node['id_old']] = (int) $node['id'];
+        $oldId = (int) $node['id_old'];
+        $newId = (int) $node['id'];
+
+        // the node kept its id, or another node already claimed the
+        // mapping for this id
+        if ($oldId === $newId || isset($this->idMap[$oldId])) {
+            return;
+        }
+
+        $this->idMap[$oldId] = $newId;
     }
     // }}}
     // {{{ getNodeArrayForSaving

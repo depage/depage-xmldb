@@ -67,6 +67,44 @@ class DocumentTest extends XmlDbTestCase
         return $row;
     }
     // }}}
+    // {{{ getCurrentDom
+    /**
+     * the current document as dom, with the database ids set (like the
+     * cms passes it back)
+     */
+    protected function getCurrentDom()
+    {
+        $dom = new \Depage\Xml\Document();
+        $dom->loadXML($this->doc->getXml(true));
+
+        return $dom;
+    }
+    // }}}
+    // {{{ findPage
+    protected function findPage($dom, $name)
+    {
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('pg', 'http://www.depagecms.net/ns/page');
+
+        $pages = $xpath->query('//pg:page[@name="' . $name . '"]');
+
+        return $pages->length > 0 ? $pages->item(0) : null;
+    }
+    // }}}
+    // {{{ getNodeIds
+    /**
+     * ids of all rows of document 3 in the database
+     */
+    protected function getNodeIds()
+    {
+        return array_map(
+            'intval',
+            $this->pdo->query(
+                'SELECT id FROM ' . $this->xmlTree . ' WHERE id_doc = 3 ORDER BY id'
+            )->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+    // }}}
 
     // {{{ testGetHistory
     public function testGetHistory()
@@ -438,9 +476,172 @@ class DocumentTest extends XmlDbTestCase
 
         // the id was not taken over, the element got one of its own, both
         // in the database and in the dom the caller holds
+        $newId = (int) $new->getAttributeNS('http://cms.depagecms.net/ns/database', 'id');
+        $this->assertNotSame($foreignId, $newId);
         $this->assertNotContains($foreignId, $elementIds);
-        $this->assertContains((int) $new->getAttributeNS('http://cms.depagecms.net/ns/database', 'id'), $elementIds);
+        $this->assertContains($newId, $elementIds);
         $this->assertSame($elementIds, $this->getXmlElementIdsOfDocument());
+
+        // the caller can read the id the element was stored with from
+        // the id map
+        $this->assertSame([$foreignId => $newId], $this->doc->getLastPatchIdMap());
+    }
+    // }}}
+    // {{{ testSaveKeepsFreePositiveId
+    /**
+     * a positive db:id that is not used by another node is kept, both in
+     * the database and in the dom, and does not appear in the id map
+     */
+    public function testSaveKeepsFreePositiveId()
+    {
+        $freeId = 424242;
+        $this->assertFalse($this->getNodeRowById($freeId));
+
+        $dom = $this->generateDomDocument($this->doc->getXml(true));
+
+        $xpath = new \DOMXPath($dom);
+        $xpath->registerNamespace('pg', 'http://www.depagecms.net/ns/page');
+
+        $home = $xpath->query('//pg:page[@name="Home3"]')->item(0);
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttribute('name', 'free');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', (string) $freeId);
+        $home->appendChild($new);
+
+        $this->doc->save($dom);
+
+        // the free id was used as is
+        $this->assertSame($freeId, (int) $new->getAttributeNS('http://cms.depagecms.net/ns/database', 'id'));
+        $this->assertSame($freeId, (int) $this->getNodeRowById($freeId)['id']);
+
+        // and it is not part of the id map
+        $this->assertArrayNotHasKey($freeId, $this->doc->getLastPatchIdMap());
+    }
+    // }}}
+    // {{{ testSaveReportsPlaceholderIds
+    /**
+     * a save reports the placeholder ids of the nodes it stored with new
+     * ids, including nested placeholders; a following save without
+     * placeholders clears the map
+     */
+    public function testSaveReportsPlaceholderIds()
+    {
+        $dom = $this->getCurrentDom();
+        $home = $this->findPage($dom, 'Home3');
+        $this->assertNotNull($home);
+
+        $first = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $first->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-1');
+        $first->appendChild($dom->createTextNode('first new page'));
+        $home->appendChild($first);
+
+        $second = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $second->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-2');
+        $second->appendChild($dom->createTextNode('second new page'));
+        $first->appendChild($second);
+
+        $this->doc->save($dom);
+
+        $idMap = $this->doc->getLastPatchIdMap();
+        $this->assertSame([-1, -2], array_keys($idMap));
+        $this->assertGreaterThan(0, $idMap[-1]);
+        $this->assertGreaterThan(0, $idMap[-2]);
+        $this->assertNotSame($idMap[-1], $idMap[-2]);
+
+        // the dom the caller holds carries the new ids
+        $this->assertSame($idMap[-1], (int) $first->getAttributeNS('http://cms.depagecms.net/ns/database', 'id'));
+        $this->assertSame($idMap[-2], (int) $second->getAttributeNS('http://cms.depagecms.net/ns/database', 'id'));
+
+        // the nodes are stored below the nodes they were added to
+        $this->assertSame(5, (int) $this->getNodeRowById($idMap[-1])['id_parent']);
+        $this->assertSame($idMap[-1], (int) $this->getNodeRowById($idMap[-2])['id_parent']);
+
+        // no row was stored with a negative id
+        foreach ($this->getNodeIds() as $id) {
+            $this->assertGreaterThan(0, $id, "node {$id} must not have a negative id");
+        }
+
+        // a save without placeholders clears the map
+        $this->doc->save($this->getCurrentDom());
+        $this->assertSame([], $this->doc->getLastPatchIdMap());
+    }
+    // }}}
+    // {{{ testSaveNodeReportsPlaceholderIds
+    /**
+     * saveNode reports the placeholder ids of the nodes it stored with
+     * new ids, including nested placeholders; a following saveNode
+     * without placeholders clears the map
+     */
+    public function testSaveNodeReportsPlaceholderIds()
+    {
+        $dom = $this->getCurrentDom();
+        $p31 = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($p31);
+
+        $first = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $first->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-1');
+        $first->appendChild($dom->createTextNode('first new page'));
+        $p31->appendChild($first);
+
+        $second = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $second->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-2');
+        $second->appendChild($dom->createTextNode('second new page'));
+        $first->appendChild($second);
+
+        $this->assertEquals(6, $this->doc->saveNode($p31));
+
+        $idMap = $this->doc->getLastPatchIdMap();
+        $this->assertSame([-1, -2], array_keys($idMap));
+        $this->assertGreaterThan(0, $idMap[-1]);
+        $this->assertGreaterThan(0, $idMap[-2]);
+        $this->assertNotSame($idMap[-1], $idMap[-2]);
+
+        // the dom the caller holds carries the new ids
+        $this->assertSame($idMap[-1], (int) $first->getAttributeNS('http://cms.depagecms.net/ns/database', 'id'));
+        $this->assertSame($idMap[-2], (int) $second->getAttributeNS('http://cms.depagecms.net/ns/database', 'id'));
+
+        // the nodes are stored below the saved node
+        $this->assertSame(6, (int) $this->getNodeRowById($idMap[-1])['id_parent']);
+        $this->assertSame($idMap[-1], (int) $this->getNodeRowById($idMap[-2])['id_parent']);
+
+        // no row was stored with a negative id
+        foreach ($this->getNodeIds() as $id) {
+            $this->assertGreaterThan(0, $id, "node {$id} must not have a negative id");
+        }
+
+        // a saveNode without placeholders clears the map
+        $this->doc->saveNode($this->findPage($this->getCurrentDom(), 'P3.1'));
+        $this->assertSame([], $this->doc->getLastPatchIdMap());
+    }
+    // }}}
+    // {{{ testSaveNodeReportsConflictingPositiveId
+    /**
+     * a positive db:id that already belongs to a node outside the saved
+     * subtree can not be used; the node gets a new id which is reported
+     * in the id map
+     */
+    public function testSaveNodeReportsConflictingPositiveId()
+    {
+        $dom = $this->getCurrentDom();
+        $p31 = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($p31);
+
+        // id 8 belongs to P3.2, which is not part of the saved subtree
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttribute('name', 'thief');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '8');
+        $p31->appendChild($new);
+
+        $this->assertEquals(6, $this->doc->saveNode($p31));
+
+        $newId = (int) $new->getAttributeNS('http://cms.depagecms.net/ns/database', 'id');
+        $this->assertNotSame(8, $newId);
+        $this->assertSame([8 => $newId], $this->doc->getLastPatchIdMap());
+
+        // the node that owned the id still belongs to its parent, the new
+        // node was stored below the saved node
+        $this->assertSame(5, (int) $this->getNodeRowById(8)['id_parent']);
+        $this->assertSame(6, (int) $this->getNodeRowById($newId)['id_parent']);
     }
     // }}}
 

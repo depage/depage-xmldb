@@ -383,6 +383,124 @@ class SavePatchTest extends XmlDbTestCase
         }
     }
     // }}}
+    // {{{ testPatchFallbackReportsPlaceholderIds
+    /**
+     * when the patch falls back to a full save(), the nodes with a
+     * placeholder id are stored with new ids as well and the mapping
+     * from the placeholders to the new ids is reported
+     */
+    public function testPatchFallbackReportsPlaceholderIds()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+        $p31 = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($p31);
+
+        // a document root without a db:id can not be patched, the call
+        // falls back to a full save
+        $dom->documentElement->removeAttributeNS('http://cms.depagecms.net/ns/database', 'id');
+
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-2');
+        $new->appendChild($dom->createTextNode('new page'));
+        $p31->appendChild($new);
+
+        $this->doc->savePatch($dom);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertTrue($stats['fallback']);
+
+        $idMap = $this->doc->getLastPatchIdMap();
+        $this->assertArrayHasKey(-2, $idMap);
+        $this->assertGreaterThan(0, $idMap[-2]);
+
+        foreach (array_keys($this->getNodeRows()) as $id) {
+            $this->assertGreaterThan(0, $id, "node {$id} must not have a negative id");
+        }
+    }
+    // }}}
+    // {{{ testPatchReportsMultiplePlaceholderIds
+    /**
+     * a patch that inserts several placeholder nodes reports the mapping
+     * for all of them, including nested placeholders; the map is reset by
+     * the next patch without placeholders
+     */
+    public function testPatchReportsMultiplePlaceholderIds()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+        $home = $this->findPage($dom, 'Home3');
+        $this->assertNotNull($home);
+
+        $first = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $first->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-1');
+        $first->appendChild($dom->createTextNode('first new page'));
+        $home->appendChild($first);
+
+        $second = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $second->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-2');
+        $second->appendChild($dom->createTextNode('second new page'));
+        $first->appendChild($second);
+
+        $this->doc->savePatch($dom);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+        $this->assertSame(1, $stats['inserts']);
+
+        $idMap = $this->doc->getLastPatchIdMap();
+        $this->assertSame([-1, -2], array_keys($idMap));
+        $this->assertGreaterThan(0, $idMap[-1]);
+        $this->assertGreaterThan(0, $idMap[-2]);
+        $this->assertNotSame($idMap[-1], $idMap[-2]);
+
+        $rows = $this->getNodeRows();
+        $this->assertArrayHasKey($idMap[-1], $rows);
+        $this->assertArrayHasKey($idMap[-2], $rows);
+        $this->assertSame($idMap[-1], (int) $rows[$idMap[-2]]['id_parent']);
+
+        // the map is reset by the next patch without placeholders
+        $this->doc->savePatch($this->getCurrentDom());
+        $this->assertSame([], $this->doc->getLastPatchIdMap());
+    }
+    // }}}
+    // {{{ testPatchReportsConflictingPositiveId
+    /**
+     * a positive db:id that already belongs to a node outside the patched
+     * subtree can not be used; the inserted node gets a new id which is
+     * reported in the id map
+     */
+    public function testPatchReportsConflictingPositiveId()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+        $p31 = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($p31);
+
+        // id 8 belongs to P3.2, which is not a child of P3.1
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttribute('name', 'thief');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '8');
+        $p31->appendChild($new);
+
+        $this->doc->savePatch($dom);
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+        $this->assertSame(1, $stats['inserts']);
+
+        $newId = (int) $new->getAttributeNS('http://cms.depagecms.net/ns/database', 'id');
+        $this->assertNotSame(8, $newId);
+        $this->assertSame([8 => $newId], $this->doc->getLastPatchIdMap());
+
+        $rows = $this->getNodeRows();
+        $this->assertSame(5, (int) $rows[8]['id_parent']);
+        $this->assertSame(6, (int) $rows[$newId]['id_parent']);
+    }
+    // }}}
     // {{{ testPatchFallsBackOnReplacedRoot
     public function testPatchFallsBackOnReplacedRoot()
     {

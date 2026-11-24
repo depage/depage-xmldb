@@ -854,18 +854,19 @@ class Document implements Interfaces\DocumentWriterHost
     // }}}
     // {{{ getLastPatchIdMap
     /**
-     * the placeholder ids of the nodes that were saved with a new
-     * database id, keyed by the placeholder id and valued with the
-     * database id the node was stored with
+     * the ids of the nodes that were saved with a new database id,
+     * keyed by the id the node carried and valued with the database
+     * id the node was stored with
      *
      * the editor hands out negative ids for the nodes it creates — they
      * are never written to the database, the nodes are stored with new
-     * ids instead; the caller reads the mapping from here to replace
-     * the placeholders with the database ids, so that the following
+     * ids instead; a positive id is also replaced when it already
+     * belongs to another node; the caller reads the mapping from here
+     * to replace the ids with the database ids, so that the following
      * saves can match the nodes by their database id
      *
-     * the map is empty when the last save did not store any node with a
-     * placeholder id
+     * the map is empty when the last save did not store any node with
+     * a replaced id
      */
     public function getLastPatchIdMap(): array
     {

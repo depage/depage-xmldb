@@ -398,6 +398,89 @@ class SaveNodePatchTest extends XmlDbTestCase
         }
     }
     // }}}
+    // {{{ testPatchSubtreeReportsMultiplePlaceholderIds
+    /**
+     * a subtree patch that inserts several placeholder nodes reports the
+     * mapping for all of them, including nested placeholders; the map is
+     * reset by the next patch without placeholders
+     */
+    public function testPatchSubtreeReportsMultiplePlaceholderIds()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+        $p31 = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($p31);
+
+        $first = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $first->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-1');
+        $first->appendChild($dom->createTextNode('first new page'));
+        $p31->appendChild($first);
+
+        $second = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $second->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '-2');
+        $second->appendChild($dom->createTextNode('second new page'));
+        $first->appendChild($second);
+
+        $this->assertSame(6, $this->doc->saveNodePatch($p31));
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+        $this->assertSame(1, $stats['inserts']);
+
+        $idMap = $this->doc->getLastPatchIdMap();
+        $this->assertSame([-1, -2], array_keys($idMap));
+        $this->assertGreaterThan(0, $idMap[-1]);
+        $this->assertGreaterThan(0, $idMap[-2]);
+        $this->assertNotSame($idMap[-1], $idMap[-2]);
+
+        $this->assertContains($idMap[-1], $this->childIdsOf(6));
+        $this->assertContains($idMap[-2], $this->childIdsOf($idMap[-1]));
+
+        foreach (array_keys($this->getNodeRows()) as $id) {
+            $this->assertGreaterThan(0, $id, "node {$id} must not have a negative id");
+        }
+
+        // the map is reset by the next patch without placeholders
+        $this->doc->saveNodePatch($this->findPage($this->getCurrentDom(), 'P3.1'));
+        $this->assertSame([], $this->doc->getLastPatchIdMap());
+    }
+    // }}}
+    // {{{ testPatchSubtreeReportsConflictingPositiveId
+    /**
+     * a positive db:id that already belongs to a node outside the patched
+     * subtree can not be used; the inserted node gets a new id which is
+     * reported in the id map
+     */
+    public function testPatchSubtreeReportsConflictingPositiveId()
+    {
+        $this->doc->savePatch($this->getCurrentDom());
+
+        $dom = $this->getCurrentDom();
+        $p31 = $this->findPage($dom, 'P3.1');
+        $this->assertNotNull($p31);
+
+        // id 8 belongs to P3.2, which is not part of the patched subtree
+        $new = $dom->createElementNS('http://www.depagecms.net/ns/page', 'pg:page');
+        $new->setAttribute('name', 'thief');
+        $new->setAttributeNS('http://cms.depagecms.net/ns/database', 'db:id', '8');
+        $p31->appendChild($new);
+
+        $this->assertSame(6, $this->doc->saveNodePatch($p31));
+
+        $stats = $this->doc->getLastPatchStats();
+        $this->assertFalse($stats['fallback']);
+        $this->assertSame(1, $stats['inserts']);
+
+        $newId = (int) $new->getAttributeNS('http://cms.depagecms.net/ns/database', 'id');
+        $this->assertNotSame(8, $newId);
+        $this->assertSame([8 => $newId], $this->doc->getLastPatchIdMap());
+
+        $rows = $this->getNodeRows();
+        $this->assertSame(5, (int) $rows[8]['id_parent']);
+        $this->assertSame(6, (int) $rows[$newId]['id_parent']);
+    }
+    // }}}
     // {{{ testPatchSubtreeFallbackReportsPlaceholderIds
     /**
      * when the patch falls back to a full saveNode(), the nodes with a

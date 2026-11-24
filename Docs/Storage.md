@@ -165,7 +165,7 @@ The planning is done by `Patch\PatchPlanner`, the writing by
 `Document::getLastPatchStats()` returns the number of nodes that were skipped,
 updated, inserted or deleted by the last call.
 
-## Placeholder ids
+## Placeholder and conflicting ids
 
 A caller that creates nodes itself — the editor of the cms does, for the nodes
 the user writes — can mark them with a **negative** `db:id`. Such an id is a
@@ -179,6 +179,10 @@ placeholder for a node that does not exist in the database (yet):
   to the ids the nodes were stored with, so that the caller can replace the
   placeholders with the database ids. The following saves then match the nodes
   by their database id.
+
+A positive id that is already used by another node can not be used either. The
+node is stored with a new id and the mapping is reported in the same way. A
+positive id that is still free is kept.
 
 The mapping is also filled when a patch falls back to a full save.
 
